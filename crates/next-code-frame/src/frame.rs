@@ -58,6 +58,92 @@ fn repeat_char_into(s: &mut String, ch: char, count: usize) {
     }
 }
 
+/// Apply line truncation based on the global truncation offset
+/// Returns (visible_content, column_offset)
+fn apply_line_truncation(
+    line_content: &str,
+    truncation_offset: usize,
+    available_code_width: usize,
+) -> (String, usize) {
+    if truncation_offset > 0 {
+        truncate_line(line_content, truncation_offset, available_code_width)
+    } else if line_content.len() > available_code_width {
+        // No global offset, but this specific line is too long
+        truncate_line(line_content, 0, available_code_width)
+    } else {
+        (line_content.to_string(), 0)
+    }
+}
+
+/// Calculate marker position and length for an error marker line
+/// Returns (marker_col, marker_length)
+fn calculate_marker_position(
+    location_start_column: usize,
+    end_column: usize,
+    line_content: &str,
+    line_idx: usize,
+    start_line: usize,
+    end_line: usize,
+    column_offset: usize,
+    available_code_width: usize,
+) -> (usize, usize) {
+    let is_last_error_line = line_idx == end_line;
+    let is_single_line_error = start_line == end_line;
+
+    // Allow columns to go one past line length (pointing after last char)
+    let max_col = line_content.len() + 1;
+
+    // Determine the column range to mark on this line:
+    // Note: column positions are 1-indexed, ranges are [start, end) exclusive
+    // - Single-line: from start_column to end_column (exclusive)
+    // - First line of multiline: from start_column to end of line
+    // - Last line of multiline: from column 1 to end_column (exclusive)
+    let (range_start, range_end) = if is_single_line_error {
+        // Single-line error: mark from start to end (end is exclusive)
+        (location_start_column, end_column)
+    } else if line_idx == start_line {
+        // First line of multiline: mark from start through last character
+        (location_start_column, line_content.len())
+    } else {
+        // Last line of multiline: mark from 1 through end_column
+        // Add 1 to make range exclusive on the right
+        (1, end_column + 1)
+    };
+
+    // Clamp both to reasonable bounds
+    let range_start = range_start.min(max_col);
+    // For end, allow a small extension past line length (for off-by-one cases)
+    // but clamp to prevent excessive spans
+    let reasonable_max = max_col + 1;
+    let range_end = range_end.min(reasonable_max);
+
+    // Calculate marker position accounting for truncation
+    // Adjust range_start by subtracting the truncation offset
+    let marker_col = range_start
+        .saturating_sub(column_offset.saturating_sub(1))
+        .max(1);
+
+    // If range is invalid (end <= start), show single marker at start
+    let marker_length = if range_end > range_start {
+        // Calculate visible span accounting for truncation
+        let visible_start = range_start.max(column_offset + 1);
+        let visible_end = range_end.min(column_offset + available_code_width);
+
+        let span_length = if visible_end > visible_start {
+            visible_end - visible_start
+        } else {
+            1
+        };
+
+        span_length.min(available_code_width - (marker_col - 1))
+    } else {
+        // Invalid range, show single marker
+        1
+    };
+
+    (marker_col, marker_length)
+}
+
 /// Renders a code frame showing the location of an error in source code
 pub fn render_code_frame(
     source: &str,
@@ -166,14 +252,8 @@ pub fn render_code_frame(
 
         // Apply consistent truncation to all lines in the window
         // All lines scroll together with the same offset
-        let (visible_content, column_offset) = if truncation_offset > 0 {
-            truncate_line(line_content, truncation_offset, available_code_width)
-        } else if line_content.len() > available_code_width {
-            // No global offset, but this specific line is too long
-            truncate_line(line_content, 0, available_code_width)
-        } else {
-            (line_content.to_string(), 0)
-        };
+        let (visible_content, column_offset) =
+            apply_line_truncation(line_content, truncation_offset, available_code_width);
 
         // Highlight code if requested
         let displayed_content = if options.highlight_code {
@@ -211,59 +291,16 @@ pub fn render_code_frame(
             && (line_idx == start_line || line_idx == end_line);
 
         if should_show_marker {
-            let is_last_error_line = line_idx == end_line;
-            let is_single_line_error = start_line == end_line;
-
-            // Allow columns to go one past line length (pointing after last char)
-            let max_col = line_content.len() + 1;
-
-            // Determine the column range to mark on this line:
-            // Note: column positions are 1-indexed, ranges are [start, end) exclusive
-            // - Single-line: from start_column to end_column (exclusive)
-            // - First line of multiline: from start_column to end of line
-            // - Last line of multiline: from column 1 to end_column (exclusive)
-            let (range_start, range_end) = if is_single_line_error {
-                // Single-line error: mark from start to end (end is exclusive)
-                (location.start_column, end_column.unwrap())
-            } else if line_idx == start_line {
-                // First line of multiline: mark from start through last character
-                (location.start_column, line_content.len())
-            } else {
-                // Last line of multiline: mark from 1 through end_column
-                // Add 1 to make range exclusive on the right
-                (1, end_column.unwrap() + 1)
-            };
-
-            // Clamp both to reasonable bounds
-            let range_start = range_start.min(max_col);
-            // For end, allow a small extension past line length (for off-by-one cases)
-            // but clamp to prevent excessive spans
-            let reasonable_max = max_col + 1;
-            let range_end = range_end.min(reasonable_max);
-
-            // Calculate marker position accounting for truncation
-            // Adjust range_start by subtracting the truncation offset
-            let marker_col = range_start
-                .saturating_sub(column_offset.saturating_sub(1))
-                .max(1);
-
-            // If range is invalid (end <= start), show single marker at start
-            let marker_length = if range_end > range_start {
-                // Calculate visible span accounting for truncation
-                let visible_start = range_start.max(column_offset + 1);
-                let visible_end = range_end.min(column_offset + available_code_width);
-
-                let span_length = if visible_end > visible_start {
-                    visible_end - visible_start
-                } else {
-                    1
-                };
-
-                span_length.min(available_code_width - (marker_col - 1))
-            } else {
-                // Invalid range, show single marker
-                1
-            };
+            let (marker_col, marker_length) = calculate_marker_position(
+                location.start_column,
+                end_column.unwrap(),
+                line_content,
+                line_idx,
+                start_line,
+                end_line,
+                column_offset,
+                available_code_width,
+            );
 
             output.push_str(color_scheme.reset);
             output.push(' '); // Marker column (space instead of >)
@@ -277,7 +314,9 @@ pub fn render_code_frame(
             output.push_str(color_scheme.reset);
 
             // Add message only on the last error line's marker
-            if is_last_error_line && let Some(ref message) = options.message {
+            if line_idx == end_line
+                && let Some(ref message) = options.message
+            {
                 output.push(' ');
                 output.push_str(color_scheme.marker);
                 output.push_str(message);
@@ -290,6 +329,8 @@ pub fn render_code_frame(
 
     Ok(output)
 }
+const ELLIPSIS: &str = "...";
+const ELLIPSIS_LEN: usize = 3;
 
 /// Calculate the truncation offset for all lines in the window.
 /// This ensures all lines are "scrolled" to the same position.
@@ -310,7 +351,6 @@ fn calculate_truncation_offset(
 
     // If we need truncation, center the error column
     // We need to account for the "..." ellipsis (3 chars) on each side
-    const ELLIPSIS_LEN: usize = 3;
     let available_with_ellipsis = available_width.saturating_sub(2 * ELLIPSIS_LEN);
 
     if error_column == 0 {
@@ -333,9 +373,6 @@ fn calculate_truncation_offset(
 
 /// Truncate a line at a specific offset, adding ellipsis as needed
 fn truncate_line(line: &str, offset: usize, max_width: usize) -> (String, usize) {
-    const ELLIPSIS: &str = "...";
-    const ELLIPSIS_LEN: usize = 3;
-
     // If no offset and line fits, return as-is
     if offset == 0 && line.len() <= max_width {
         return (line.to_string(), 0);
