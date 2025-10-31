@@ -189,9 +189,11 @@ fn classify_token(token: &Token) -> Option<TokenType> {
 }
 
 /// Add start and end markers for a token span
+/// Note: BytePos is 1-indexed (BytePos(0) is reserved), so we subtract 1 to get 0-indexed offsets
 fn add_token_markers(markers: &mut Vec<StyleMarker>, span: Span, token_type: TokenType) {
-    let start = span.lo.0 as usize;
-    let end = span.hi.0 as usize;
+    // BytePos starts at 1, so we need to subtract 1 to get 0-indexed offsets
+    let start = span.lo.0.saturating_sub(1) as usize;
+    let end = span.hi.0.saturating_sub(1) as usize;
 
     if start < end {
         markers.push(StyleMarker {
@@ -344,4 +346,65 @@ pub fn apply_line_highlights(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_highlights_basic() {
+        let source = r#"const foo = "hello";"#;
+        let highlights = extract_highlights(source);
+
+        // Should have 1 line
+        assert_eq!(highlights.len(), 1);
+        assert_eq!(highlights[0].line, 1);
+
+        // Should have markers for keyword (const), identifier (foo), and string ("hello")
+        assert!(highlights[0].markers.len() > 0);
+    }
+
+    #[test]
+    fn test_extract_highlights_multiline() {
+        let source = "const x = 1;\nconst y = 2;";
+        let highlights = extract_highlights(source);
+
+        // Should have 2 lines
+        assert_eq!(highlights.len(), 2);
+        assert_eq!(highlights[0].line, 1);
+        assert_eq!(highlights[1].line, 2);
+
+        // Both lines should have markers
+        assert!(highlights[0].markers.len() > 0);
+        assert!(highlights[1].markers.len() > 0);
+    }
+
+    #[test]
+    fn test_apply_line_highlights_basic() {
+        let source = "const foo = 123";
+        let highlights = extract_highlights(source);
+        let color_scheme = ColorScheme::colored();
+
+        let result = apply_line_highlights(source, &highlights[0], &color_scheme);
+
+        // Result should contain ANSI codes
+        assert!(result.contains("\x1b["), "Result should contain ANSI codes");
+        // Result should still contain the original text
+        assert!(result.contains("const"), "Result should contain 'const'");
+        assert!(result.contains("foo"), "Result should contain 'foo'");
+        assert!(result.contains("123"), "Result should contain '123'");
+    }
+
+    #[test]
+    fn test_apply_line_highlights_plain() {
+        let source = "const foo = 123";
+        let highlights = extract_highlights(source);
+        let color_scheme = ColorScheme::plain();
+
+        let result = apply_line_highlights(source, &highlights[0], &color_scheme);
+
+        // With plain color scheme, result should be identical to input
+        assert_eq!(result, source);
+    }
 }
