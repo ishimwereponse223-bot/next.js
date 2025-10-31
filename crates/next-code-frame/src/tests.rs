@@ -82,10 +82,43 @@ fn test_multiline_error() {
 
     let result = render_code_frame(source, &location, &options).unwrap();
 
+    // Multiline error shows markers on both first and last lines
+    // end_column 12 is allowed (one past the 11-char line)
     let expected = r#"  1 | function test() {
 > 2 |   console.log('hello')
     |   ^
 > 3 |   return 42
+    |            ^
+  4 | }
+"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_multiline_error_with_message() {
+    let source = "function test() {\n  console.log('hello')\n  return 42\n}";
+    let location = CodeFrameLocation {
+        start_line: 2,
+        start_column: 3,
+        end_line: Some(3),
+        end_column: Some(12),
+    };
+    let options = CodeFrameOptions {
+        use_colors: false,
+        highlight_code: false,
+        message: Some("Unexpected expression".to_string()),
+        ..Default::default()
+    };
+
+    let result = render_code_frame(source, &location, &options).unwrap();
+
+    // Message should only appear once, on the last error line's marker
+    // Note: end_column 12 is allowed (one past the 11-char line length)
+    let expected = r#"  1 | function test() {
+> 2 |   console.log('hello')
+    |   ^
+> 3 |   return 42
+    |            ^ Unexpected expression
   4 | }
 "#;
     assert_eq!(result, expected);
@@ -401,6 +434,110 @@ Another paragraph.
   4 |
   5 | ```javascript
   6 | const x = 1;
+"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_invalid_column_start_out_of_bounds() {
+    // Start column beyond line length should be clamped
+    let source = "short";
+    let location = CodeFrameLocation {
+        start_line: 1,
+        start_column: 100, // Way past end of line
+        end_line: None,
+        end_column: None,
+    };
+    let options = CodeFrameOptions {
+        use_colors: false,
+        highlight_code: false,
+        ..Default::default()
+    };
+
+    let result = render_code_frame(source, &location, &options).unwrap();
+
+    // Should clamp to end of line (column 5)
+    let expected = r#"> 1 | short
+    |      ^
+"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_invalid_column_end_before_start() {
+    // End column before start column should show single marker at start
+    let source = "const x = 123;";
+    let location = CodeFrameLocation {
+        start_line: 1,
+        start_column: 11, // "123"
+        end_line: None,
+        end_column: Some(5), // Before start - invalid
+    };
+    let options = CodeFrameOptions {
+        use_colors: false,
+        highlight_code: false,
+        ..Default::default()
+    };
+
+    let result = render_code_frame(source, &location, &options).unwrap();
+
+    // Should show single marker at start column (no span)
+    let expected = r#"> 1 | const x = 123;
+    |           ^
+"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_invalid_column_both_out_of_bounds() {
+    // Both columns out of bounds
+    let source = "abc";
+    let location = CodeFrameLocation {
+        start_line: 1,
+        start_column: 10,
+        end_line: None,
+        end_column: Some(20),
+    };
+    let options = CodeFrameOptions {
+        use_colors: false,
+        highlight_code: false,
+        ..Default::default()
+    };
+
+    let result = render_code_frame(source, &location, &options).unwrap();
+
+    // Both should clamp to line length (3)
+    // Since they're equal after clamping, shows single marker
+    let expected = r#"> 1 | abc
+    |    ^
+"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_invalid_multiline_end_column_out_of_bounds() {
+    // Multiline error with end column out of bounds on last line
+    let source = "line1\nshort\nline3";
+    let location = CodeFrameLocation {
+        start_line: 1,
+        start_column: 2,
+        end_line: Some(2),
+        end_column: Some(50), // Way past end of "short"
+    };
+    let options = CodeFrameOptions {
+        use_colors: false,
+        highlight_code: false,
+        ..Default::default()
+    };
+
+    let result = render_code_frame(source, &location, &options).unwrap();
+
+    // End column should clamp to line length of "short" (5)
+    let expected = r#"> 1 | line1
+    |  ^
+> 2 | short
+    |      ^
+  3 | line3
 "#;
     assert_eq!(result, expected);
 }
