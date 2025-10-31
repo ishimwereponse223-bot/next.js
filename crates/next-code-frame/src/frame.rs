@@ -1,9 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::{
-    highlight::{ColorScheme, highlight_code},
-    terminal::get_terminal_width,
-};
+use crate::{highlight::ColorScheme, terminal::get_terminal_width};
 
 /// A source location with line and column
 #[derive(Debug, Clone, Copy)]

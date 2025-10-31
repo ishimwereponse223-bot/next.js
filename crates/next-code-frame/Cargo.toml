@@ -17,12 +17,10 @@ similar.opt-level = 3
 
 [dependencies]
 anyhow = { workspace = true }
-swc_core = { workspace = true, features = [
-    "common",
-    "ecma_ast",
-    "ecma_parser",
-    "ecma_parser_typescript",
-] }
+oxc_parser = "0.42.0"
+oxc_span = "0.42.0"
+oxc_allocator = "0.42.0"
+oxc_ast = "0.42.0"
 
 [dev-dependencies]
 insta = { version = "1.43.1", features = ["yaml"] }
