@@ -1,0 +1,21 @@
+[package]
+name = "next-code-frame"
+version = "0.0.1"
+description = "Fast, scalable code frame rendering for Next.js error reporting"
+license = "MIT"
+edition = "2024"
+
+[lib]
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+swc_core = { workspace = true, features = [
+    "common",
+    "ecma_ast",
+    "ecma_parser",
+    "ecma_parser_typescript",
+] }

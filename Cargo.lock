@@ -4315,6 +4315,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "next-code-frame"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "swc_core",
+]
+
+[[package]]
 name = "next-core"
 version = "0.1.0"
 dependencies = [
