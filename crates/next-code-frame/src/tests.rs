@@ -16,7 +16,10 @@ fn test_simple_single_line_error() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+    > 1 | console.log('hello')
+        | ^
+    ");
 }
 
 #[test]
@@ -33,7 +36,7 @@ fn test_empty_source() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @"");
 }
 
 #[test]
@@ -53,7 +56,7 @@ fn test_invalid_line_number() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @"");
 }
 
 #[test]
@@ -73,7 +76,14 @@ fn test_multiline_error() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+      1 | function test() {
+    > 2 |   console.log('hello')
+        |   ^^^^^^^^^^^^^^^^^^^
+    > 3 |   return 42
+        | ^^^^^^^^^^^
+      4 | }
+    ");
 }
 
 #[test]
@@ -94,7 +104,14 @@ fn test_multiline_error_with_message() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+      1 | function test() {
+    > 2 |   console.log('hello')
+        |   ^^^^^^^^^^^^^^^^^^^
+    > 3 |   return 42
+        | ^^^^^^^^^^^ Unexpected expression
+      4 | }
+    ");
 }
 
 #[test]
@@ -112,7 +129,10 @@ fn test_with_message() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+    > 1 | const x = 1
+        |       ^ Expected semicolon
+    ");
 }
 
 #[test]
@@ -136,7 +156,12 @@ fn test_long_line_single_error() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+      1 | ...
+    > 2 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
+        |                                                 ^
+      3 | ...
+    ");
 }
 
 #[test]
@@ -157,7 +182,10 @@ fn test_long_line_at_start() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+    > 1 | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
+        |     ^
+    ");
 }
 
 #[test]
@@ -181,7 +209,10 @@ fn test_long_line_at_end() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+    > 1 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        |                                                 ^
+    ");
 }
 
 #[test]
@@ -209,7 +240,12 @@ fn test_long_line_multiline_aligned() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+      1 | ...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...
+    > 2 | ...cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...
+        |                                                 ^
+      3 | ...dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd...
+    ");
 }
 
 #[test]
@@ -228,7 +264,14 @@ fn test_context_lines() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+      2 | line 2
+      3 | line 3
+    > 4 | line 4
+        | ^
+      5 | line 5
+      6 | line 6
+    ");
 }
 
 #[test]
@@ -253,7 +296,13 @@ fn test_gutter_width_alignment() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+       97 | line 97
+       98 | line 98
+    >  99 | line 99
+          | ^
+      100 | line 100
+    ");
 }
 
 #[test]
@@ -281,7 +330,14 @@ fn test_large_file() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+      24998 | line 24998 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      24999 | line 24999 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    > 25000 | line 25000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+            | ^
+      25001 | line 25001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      25002 | line 25002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ");
 }
 
 #[test]
@@ -308,7 +364,10 @@ fn test_long_error_span() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+    > 1 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
+        |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ");
 }
 
 #[test]
@@ -339,7 +398,15 @@ Another paragraph.
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+      1 | # Title
+      2 |
+    > 3 | This is a paragraph with some **bold** text.
+        |                         ^
+      4 |
+      5 | ```javascript
+      6 | const x = 1;
+    ");
 }
 
 #[test]
@@ -360,7 +427,10 @@ fn test_invalid_column_start_out_of_bounds() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+    > 1 | short
+        |      ^
+    ");
 }
 
 #[test]
@@ -381,7 +451,10 @@ fn test_invalid_column_end_before_start() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result);
+    assert_snapshot!(result, @r"
+    > 1 | const x = 123;
+        |           ^
+    ");
 }
 
 #[test]
@@ -405,7 +478,10 @@ fn test_invalid_column_both_out_of_bounds() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result,@"");
+    assert_snapshot!(result, @r"
+    > 1 | abc
+        |    ^
+    ");
 }
 
 #[test]
@@ -426,7 +502,13 @@ fn test_invalid_multiline_end_column_out_of_bounds() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!(result, @"");
+    assert_snapshot!(result, @r"
+    > 1 | line1
+        |  ^^^
+    > 2 | short
+        | ^^^^^^
+      3 | line3
+    ");
 }
 
 #[test]
@@ -453,7 +535,10 @@ fn test_column_semantics_explicit_end() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-    assert_snapshot!("single_char", result);
+    assert_snapshot!(result, @r"
+    > 1 | const x = 123;
+        |           ^
+    ");
 
     // Test 2: Mark "123" which spans columns 11-13 (1-indexed)
     // With EXCLUSIVE semantics: end_column should be 14 to mark columns 11-13
@@ -468,6 +553,9 @@ fn test_column_semantics_explicit_end() {
         }), // Exclusive: marks [11, 14) = columns 11, 12, 13
     };
 
-    let result2 = render_code_frame(source, &location2, &options).unwrap();
-    assert_snapshot!("three_chars", result2);
+    let result = render_code_frame(source, &location2, &options).unwrap();
+    assert_snapshot!(result, @r"
+    > 1 | const x = 123;
+        |           ^^^
+    ");
 }

@@ -1,9 +1,0 @@
----
-source: crates/next-code-frame/src/tests.rs
-expression: result
----
-> 1 | line1
-    |  ^^^
-> 2 | short
-    | ^^^^^^
-  3 | line3
