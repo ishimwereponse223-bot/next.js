@@ -5,17 +5,38 @@ use crate::{
     terminal::get_terminal_width,
 };
 
+/// A source location with line and column
+#[derive(Debug, Clone, Copy)]
+pub struct Location {
+    /// 1-indexed line number
+    pub line: usize,
+    /// 1-indexed column number (0 means no column highlighting)
+    pub column: usize,
+}
+
 /// Location information for the error in the source code
-#[derive(Debug, Clone)]
+///
+/// # Column Semantics
+///
+/// - `start.column`: **Inclusive** - points to the first character to mark
+/// - `end.column`: **EXCLUSIVE** - points one past the last character to mark
+///
+/// This follows standard programming range conventions `[start, end)`.
+///
+/// Example: To mark "123" at columns 11-13, use:
+/// ```ignore
+/// CodeFrameLocation {
+///     start: Location { line: 1, column: 11 },
+///     end: Some(Location { line: 1, column: 14 }),  // Exclusive
+/// }
+/// ```
+#[derive(Debug, Clone, Copy)]
 pub struct CodeFrameLocation {
-    /// Starting line (1-indexed)
-    pub start_line: usize,
-    /// Starting column (1-indexed, 0 means no column highlighting)
-    pub start_column: usize,
-    /// Optional ending line (1-indexed)
-    pub end_line: Option<usize>,
-    /// Optional ending column (1-indexed)
-    pub end_column: Option<usize>,
+    /// Starting location
+    pub start: Location,
+    /// Optional ending location
+    /// Line is treated inclusively but column is treated exclusively
+    pub end: Option<Location>,
 }
 
 /// Options for rendering the code frame
@@ -27,11 +48,11 @@ pub struct CodeFrameOptions {
     pub lines_below: usize,
     /// Whether to use color output
     pub use_colors: bool,
-    /// Whether to highlight code syntax
+    /// Whether to attempt syntax highlighting
     pub highlight_code: bool,
-    /// Optional message to display
+    /// Optional message to display with the error
     pub message: Option<String>,
-    /// Maximum width for output (None = auto-detect)
+    /// Maximum width for the output (None = terminal width)
     pub max_width: Option<usize>,
 }
 
@@ -40,7 +61,7 @@ impl Default for CodeFrameOptions {
         Self {
             lines_above: 2,
             lines_below: 3,
-            use_colors: false,
+            use_colors: true,
             highlight_code: true,
             message: None,
             max_width: None,
@@ -48,8 +69,6 @@ impl Default for CodeFrameOptions {
     }
 }
 
-/// Efficiently pushes a character repeated `count` times into the string buffer
-/// Reserves capacity upfront to avoid multiple allocations
 #[inline]
 fn repeat_char_into(s: &mut String, ch: char, count: usize) {
     s.reserve(count);
@@ -58,8 +77,6 @@ fn repeat_char_into(s: &mut String, ch: char, count: usize) {
     }
 }
 
-/// Apply line truncation based on the global truncation offset
-/// Returns (visible_content, column_offset)
 fn apply_line_truncation(
     line_content: &str,
     truncation_offset: usize,
@@ -68,15 +85,12 @@ fn apply_line_truncation(
     if truncation_offset > 0 {
         truncate_line(line_content, truncation_offset, available_code_width)
     } else if line_content.len() > available_code_width {
-        // No global offset, but this specific line is too long
         truncate_line(line_content, 0, available_code_width)
     } else {
         (line_content.to_string(), 0)
     }
 }
 
-/// Calculate marker position and length for an error marker line
-/// Returns (marker_col, marker_length)
 fn calculate_marker_position(
     location_start_column: usize,
     end_column: usize,
@@ -91,25 +105,26 @@ fn calculate_marker_position(
     let max_col = line_length + 1;
 
     // Determine the column range to mark on this line:
-    // Note: We use exclusive ranges [start, end) for internal calculation
+    // We use exclusive ranges [start, end) internally
     //
-    // For single-line errors: end_column is already exclusive (from normalization)
-    // For multiline errors: end_column is inclusive (as user provided), so we add +1
+    // API contract: end.column is ALWAYS exclusive (follows [start, end) convention)
     //
-    // - Single-line: from start_column to end_column (end_column is exclusive)
-    // - First line of multiline: from start_column to end of line
-    // - Last line of multiline: from column 1 to end_column+1 (converting inclusive to exclusive)
+    // For rendering:
+    // - Single-line: Mark from start.column to end.column (exclusive)
+    // - First line of multiline: Mark from start.column to end of line
+    // - Last line of multiline: Mark from column 1 to end.column (exclusive)
     let is_single_line_error = start_line == end_line;
 
     let (range_start, range_end) = if is_single_line_error {
-        // Single-line: end_column is already exclusive after normalization
+        // Single-line: end.column is exclusive, use directly
         (location_start_column, end_column)
     } else if line_idx == start_line {
         // First line of multiline: mark from start to end of line
+        // line_length already represents the last column position
         (location_start_column, line_length)
     } else {
-        // Last line of multiline: convert inclusive end_column to exclusive
-        (1, end_column + 1)
+        // Last line of multiline: mark from column 1 to end.column (exclusive)
+        (1, end_column)
     };
 
     // Clamp to reasonable bounds
@@ -119,28 +134,33 @@ fn calculate_marker_position(
     let range_end = range_end.min(reasonable_max);
 
     // Calculate marker position accounting for truncation
-    // Adjust range_start by subtracting the truncation offset
-    let marker_col = range_start
-        .saturating_sub(column_offset.saturating_sub(1))
-        .max(1);
+    // When column_offset > 0, visible content is "...XXXXX" where X starts at column_offset
+    // Display positions: columns 1-3 are "...", column 4 corresponds to original column_offset
+    let marker_col = if column_offset > 0 {
+        // Convert original column to display column
+        // formula: display_col = (original_col - offset) + 4
+        // where 4 accounts for the "..." prefix (3 chars) plus 1-indexing
+        if range_start < column_offset {
+            // Error starts before visible window, mark from column 4 (after "...")
+            4
+        } else {
+            // Error starts in visible window
+            (range_start - column_offset) + 4
+        }
+    } else {
+        // No truncation, use column as-is
+        range_start.max(1)
+    };
 
     // If range is invalid (end <= start), show single marker at start
     let marker_length = if range_end > range_start {
-        // Calculate visible span accounting for truncation
-        let visible_start = range_start.max(column_offset + 1);
-        let visible_end = range_end.min(column_offset + available_code_width);
-
-        let span_length = if visible_end > visible_start {
-            visible_end - visible_start
-        } else {
-            1
-        };
-
-        span_length.min(available_code_width - (marker_col - 1))
+        range_end - range_start
     } else {
-        // Invalid range, show single marker
         1
     };
+
+    // Adjust marker_length if it would extend past available width
+    let marker_length = marker_length.min(available_code_width.saturating_sub(marker_col - 1));
 
     (marker_col, marker_length)
 }
@@ -158,35 +178,31 @@ pub fn render_code_frame(
     let lines: Vec<&str> = source.lines().collect();
 
     // Validate location
-    let start_line = location.start_line.saturating_sub(1); // Convert to 0-indexed
+    let start_line = location.start.line.saturating_sub(1); // Convert to 0-indexed
     if start_line >= lines.len() {
         return Ok(String::new());
     }
 
     let end_line = location
-        .end_line
-        .map(|l| l.saturating_sub(1).min(lines.len() - 1))
+        .end
+        .map(|l| l.line.saturating_sub(1).min(lines.len() - 1))
         .unwrap_or(start_line);
     if end_line < start_line {
         bail!("source location invalid end_line {end_line} < {start_line}");
     }
 
     // Normalize end_column:
-    // For single-line errors: end_column will be exclusive (one past last char)
-    // For multiline errors: end_column remains inclusive (as provided by user)
-    // - If no end_line (single-line) and no end_column, default to start_column + 1 (exclusive)
-    // - If end_line is set but no end_column, that's an error (ambiguous range)
-    // - Otherwise use the provided end_column as-is
-    let end_column = match location.end_column {
-        Some(col) => col,
+    // API contract: end.column is always EXCLUSIVE (follows [start, end) convention)
+    // - If no end (single-line) and no end.column, default to start.column + 1 (marks 1 char)
+    // - If end is set but no end.column, that would be None - but the struct requires it together
+    // - Otherwise use the provided end.column as-is
+    let end_column = match location.end {
+        Some(l) => l.column,
         None => {
-            if location.end_line.is_some() {
-                bail!("end_line specified without end_column - ambiguous error range");
-            }
-            // Single-line error without end_column defaults to single-char marker
+            // Single-line error without end defaults to single-char marker
             // end_column = start_column + 1 (exclusive) means mark exactly one character
-            if location.start_column > 0 {
-                location.start_column + 1
+            if location.start.column > 0 {
+                location.start.column + 1
             } else {
                 0
             }
@@ -206,8 +222,8 @@ pub fn render_code_frame(
     let max_width = options.max_width.unwrap_or_else(get_terminal_width);
 
     // Calculate available width for code (accounting for gutter, markers, and padding)
-    // Format: " > N | code" or "   N | code"
-    // That's: 1 (space) + 1 (marker) + gutter_width + 3 (" | ")
+    // Format: "> N | code" or "  N | code"
+    // That's: 1 (marker) + 1 (space) + gutter_width + 3 (" | ")
     let gutter_total_width = 1 + 1 + gutter_width + 3;
     let available_code_width = max_width.saturating_sub(gutter_total_width);
     if available_code_width == 0 {
@@ -215,13 +231,14 @@ pub fn render_code_frame(
     }
 
     // Calculate truncation offset for long lines - only if any line actually needs it
-    // Center the error column if any line in the error range needs truncation
+    // Center the error range if any line in the error range needs truncation
     let truncation_offset = calculate_truncation_offset(
         &lines,
         first_line,
         last_line,
         start_line,
-        location.start_column,
+        location.start.column,
+        end_column,
         available_code_width,
     );
 
@@ -234,7 +251,7 @@ pub fn render_code_frame(
 
     // Add message if provided and no column specified
     if let Some(ref message) = options.message
-        && location.start_column == 0
+        && location.start.column == 0
     {
         repeat_char_into(&mut output, ' ', gutter_total_width);
         output.push_str(color_scheme.marker);
@@ -244,57 +261,41 @@ pub fn render_code_frame(
     }
 
     // Render each line
-    for (line_idx, line_content) in lines
-        .into_iter()
-        .enumerate()
-        .take(last_line)
-        .skip(first_line)
-    {
-        let line_num = line_idx + 1;
+    for (line_idx, line_content) in lines.iter().enumerate().take(last_line).skip(first_line) {
         let is_error_line = line_idx >= start_line && line_idx <= end_line;
+        let line_num = line_idx + 1;
 
-        // Apply consistent truncation to all lines in the window
-        // All lines scroll together with the same offset
+        // Apply consistent truncation to all lines
         let (visible_content, column_offset) =
             apply_line_truncation(line_content, truncation_offset, available_code_width);
 
-        // Highlight code if requested
-        let displayed_content = if options.highlight_code {
-            highlight_code(&visible_content, options.use_colors)
-        } else {
-            visible_content
-        };
-
-        // Render line with gutter
-        let marker = if is_error_line { ">" } else { " " };
-
-        output.push_str(color_scheme.reset);
+        // Line prefix with number
         if is_error_line {
             output.push_str(color_scheme.marker);
-        }
-        output.push_str(marker);
-        output.push_str(color_scheme.gutter);
-        output.push_str(&format!(" {:>width$} |", line_num, width = gutter_width));
-        output.push_str(color_scheme.reset);
-
-        if !displayed_content.is_empty() {
+            output.push('>');
+            output.push_str(color_scheme.reset);
+        } else {
             output.push(' ');
-            output.push_str(&displayed_content);
         }
-
+        output.push(' ');
+        output.push_str(color_scheme.gutter);
+        output.push_str(&format!("{:>width$}", line_num, width = gutter_width));
         output.push_str(color_scheme.reset);
+        output.push_str(color_scheme.gutter);
+        output.push_str(" |");
+        output.push_str(color_scheme.reset);
+
+        // Line content (with space separator if not empty)
+        if !visible_content.is_empty() {
+            output.push(' ');
+            output.push_str(&visible_content);
+        }
         output.push('\n');
 
-        // Add marker line with ^ if this is an error line and we have column info
-        // Only show markers on first and last lines (not middle lines of multiline errors)
-        let should_show_marker = is_error_line
-            && location.start_column > 0
-            && !line_content.is_empty()
-            && (line_idx == start_line || line_idx == end_line);
-
-        if should_show_marker {
+        // Add marker line if this is an error line with column info
+        if is_error_line && location.start.column > 0 {
             let (marker_col, marker_length) = calculate_marker_position(
-                location.start_column,
+                location.start.column,
                 end_column,
                 line_content.len(),
                 line_idx,
@@ -304,10 +305,10 @@ pub fn render_code_frame(
                 available_code_width,
             );
 
-            output.push_str(color_scheme.reset);
-            output.push(' '); // Marker column (space instead of >)
+            output.push(' ');
+            output.push(' ');
             output.push_str(color_scheme.gutter);
-            output.push_str(&format!(" {:>width$} |", "", width = gutter_width));
+            output.push_str(&format!("{:>width$} |", "", width = gutter_width));
             output.push_str(color_scheme.reset);
             output.push(' ');
             repeat_char_into(&mut output, ' ', marker_col - 1);
@@ -335,13 +336,14 @@ const ELLIPSIS: &str = "...";
 const ELLIPSIS_LEN: usize = 3;
 
 /// Calculate the truncation offset for all lines in the window.
-/// This ensures all lines are "scrolled" to the same position.
+/// This ensures all lines are "scrolled" to the same position, centering the error range.
 fn calculate_truncation_offset(
     lines: &[&str],
     first_line: usize,
     last_line: usize,
     _error_line: usize,
-    error_column: usize,
+    start_column: usize,
+    end_column: usize,
     available_width: usize,
 ) -> usize {
     // Check if any line in the window needs truncation
@@ -351,25 +353,30 @@ fn calculate_truncation_offset(
         return 0;
     }
 
-    // If we need truncation, center the error column
+    // If we need truncation, center the error range
     // We need to account for the "..." ellipsis (3 chars) on each side
     let available_with_ellipsis = available_width.saturating_sub(2 * ELLIPSIS_LEN);
 
-    if error_column == 0 {
+    if start_column == 0 {
         // No specific error column, start at beginning
         return 0;
     }
 
-    // Try to center the error column
-    let half_width = available_with_ellipsis / 2;
-    let error_col_0idx = error_column.saturating_sub(1);
+    // Calculate the midpoint of the error range
+    // end_column is exclusive, so the range is [start_column, end_column)
+    let start_0idx = start_column.saturating_sub(1);
+    let end_0idx = end_column.saturating_sub(1);
+    let error_midpoint = (start_0idx + end_0idx) / 2;
 
-    if error_col_0idx < half_width {
-        // Error is near the start, start from beginning
+    // Try to center the error range midpoint
+    let half_width = available_with_ellipsis / 2;
+
+    if error_midpoint < half_width {
+        // Error range is near the start, start from beginning
         0
     } else {
-        // Center the error column
-        error_col_0idx.saturating_sub(half_width)
+        // Center the error range midpoint
+        error_midpoint.saturating_sub(half_width)
     }
 }
 
@@ -380,59 +387,49 @@ fn truncate_line(line: &str, offset: usize, max_width: usize) -> (String, usize)
         return (line.to_string(), 0);
     }
 
-    // If offset is 0 but line is too long, we only need end ellipsis
-    if offset == 0 {
-        let content_width = max_width.saturating_sub(ELLIPSIS_LEN);
-        let end_idx = line
-            .char_indices()
-            .nth(content_width)
-            .map(|(i, _)| i)
-            .unwrap_or(line.len());
-        return (format!("{}{}", &line[..end_idx], ELLIPSIS), 0);
+    let mut result = String::with_capacity(max_width);
+    let actual_offset = offset;
+
+    // Add leading ellipsis if we're starting mid-line
+    if offset > 0 {
+        result.push_str(ELLIPSIS);
     }
 
-    // We have an offset, so we need start ellipsis
-    let needs_start_ellipsis = true;
-    let mut available_width = max_width.saturating_sub(ELLIPSIS_LEN);
-
-    // Find start position at character boundary
-    let start_idx = line
-        .char_indices()
-        .find(|(i, _)| *i >= offset)
-        .map(|(i, _)| i)
-        .unwrap_or(line.len());
-
-    // If the line is completely scrolled out (offset beyond line length), show just ellipsis
-    if start_idx >= line.len() {
-        return (ELLIPSIS.to_string(), offset);
-    }
-
-    // Check if we need end ellipsis
-    let remaining_chars = line[start_idx..].len();
-    let needs_end_ellipsis = remaining_chars > available_width;
-
-    if needs_end_ellipsis {
-        available_width = available_width.saturating_sub(ELLIPSIS_LEN);
-    }
-
-    // Extract content
-    let end_target = start_idx + available_width;
-    let end_idx = line
-        .char_indices()
-        .skip_while(|(i, _)| *i < start_idx)
-        .take_while(|(i, _)| *i < end_target)
-        .last()
-        .map(|(i, c)| i + c.len_utf8())
-        .unwrap_or(start_idx.min(line.len()));
-
-    let content = &line[start_idx..end_idx];
-
-    let result = match (needs_start_ellipsis, needs_end_ellipsis) {
-        (true, true) => format!("{}{}{}", ELLIPSIS, content, ELLIPSIS),
-        (true, false) => format!("{}{}", ELLIPSIS, content),
-        (false, true) => format!("{}{}", content, ELLIPSIS),
-        (false, false) => content.to_string(),
+    // Calculate how much content we can show
+    let available_content_width = if offset > 0 {
+        max_width.saturating_sub(ELLIPSIS_LEN)
+    } else {
+        max_width
     };
 
-    (result, start_idx)
+    // Check if line would extend past the end
+    let remaining_line = if offset < line.len() {
+        &line[offset..]
+    } else {
+        // Offset is past line length - show just ellipsis
+        return (ELLIPSIS.to_string(), offset);
+    };
+
+    let needs_trailing_ellipsis = remaining_line.len() > available_content_width;
+    let content_width = if needs_trailing_ellipsis {
+        available_content_width.saturating_sub(ELLIPSIS_LEN)
+    } else {
+        available_content_width.min(remaining_line.len())
+    };
+
+    // Extract the visible portion, being careful about UTF-8 boundaries
+    let visible_end = remaining_line
+        .char_indices()
+        .take(content_width)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+
+    result.push_str(&remaining_line[..visible_end]);
+
+    if needs_trailing_ellipsis {
+        result.push_str(ELLIPSIS);
+    }
+
+    (result, actual_offset)
 }

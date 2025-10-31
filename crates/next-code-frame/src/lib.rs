@@ -4,7 +4,7 @@ mod frame;
 mod highlight;
 mod terminal;
 
-pub use frame::{CodeFrameLocation, CodeFrameOptions, render_code_frame};
+pub use frame::{CodeFrameLocation, CodeFrameOptions, Location, render_code_frame};
 pub use terminal::get_terminal_width;
 
 #[cfg(test)]
