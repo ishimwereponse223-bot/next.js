@@ -1,7 +1,5 @@
-use oxc_allocator::Allocator;
-use oxc_ast::Visit;
-use oxc_parser::Parser;
-use oxc_span::{SourceType, Span};
+use swc_common::{SourceMap, Span};
+use swc_ecma_lexer::{Lexer, StringInput, Syntax, TsSyntax, token::Token};
 
 /// A style marker at a specific byte offset in the source
 /// Represents either the start or end of a styled region
@@ -115,82 +113,97 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
     // Build line offset map first
     let line_offsets = build_line_offset_map(source);
 
-    // Create allocator for OXC
-    let allocator = Allocator::default();
+    // Create a SourceMap and SourceFile for the lexer
+    let cm = SourceMap::default();
+    let fm = cm.new_source_file(
+        swc_common::FileName::Custom("input.tsx".into()).into(),
+        source.to_string(),
+    );
 
-    // Configure source type for TypeScript/JSX
-    let source_type = SourceType::from_path("file.tsx").unwrap_or_default();
+    // Configure syntax for TypeScript + JSX
+    let syntax = Syntax::Typescript(TsSyntax {
+        tsx: true,
+        decorators: true,
+        ..Default::default()
+    });
 
-    // Parse with OXC
-    let parser_ret = Parser::new(&allocator, source, source_type).parse();
+    // Create lexer
+    let input = StringInput::from(&*fm);
+    let mut lexer = Lexer::new(syntax, Default::default(), input, None);
 
-    // Visit AST and extract highlights
-    let mut visitor = HighlightVisitor {
-        markers: Vec::new(),
-    };
+    // Lex all tokens and extract style markers
+    let mut markers = Vec::new();
 
-    visitor.visit_program(&parser_ret.program);
+    loop {
+        match lexer.next() {
+            Some(token) => {
+                if token.token == Token::Eof {
+                    break;
+                }
 
-    // Sort markers by offset
-    visitor.markers.sort();
-
-    // Split markers into per-line highlights
-    split_markers_by_line(&visitor.markers, &line_offsets)
-}
-
-/// Visitor that extracts style markers from the AST
-struct HighlightVisitor {
-    markers: Vec<StyleMarker>,
-}
-
-impl HighlightVisitor {
-    fn add_span(&mut self, span: Span, token_type: TokenType) {
-        let start = span.start as usize;
-        let end = span.end as usize;
-
-        if start < end {
-            self.markers.push(StyleMarker {
-                offset: start,
-                is_start: true,
-                token_type,
-            });
-            self.markers.push(StyleMarker {
-                offset: end,
-                is_start: false,
-                token_type,
-            });
+                // Classify token and add markers
+                if let Some(token_type) = classify_token(&token.token) {
+                    add_token_markers(&mut markers, token.span, token_type);
+                }
+            }
+            None => {
+                // End of input
+                break;
+            }
         }
     }
+
+    // Sort markers by offset
+    markers.sort();
+
+    // Split markers into per-line highlights
+    split_markers_by_line(&markers, &line_offsets)
 }
 
-impl<'a> Visit<'a> for HighlightVisitor {
-    fn visit_string_literal(&mut self, lit: &oxc_ast::ast::StringLiteral<'a>) {
-        self.add_span(lit.span, TokenType::String);
-    }
+/// Classify a token into a highlighting type
+fn classify_token(token: &Token) -> Option<TokenType> {
+    match token {
+        // Keywords
+        Token::Word(word) => match word {
+            swc_ecma_lexer::token::Word::Keyword(_) => Some(TokenType::Keyword),
+            swc_ecma_lexer::token::Word::Null
+            | swc_ecma_lexer::token::Word::True
+            | swc_ecma_lexer::token::Word::False => Some(TokenType::Keyword),
+            swc_ecma_lexer::token::Word::Ident(_) => Some(TokenType::Identifier),
+        },
 
-    fn visit_numeric_literal(&mut self, lit: &oxc_ast::ast::NumericLiteral<'a>) {
-        self.add_span(lit.span, TokenType::Number);
-    }
+        // Literals
+        Token::Str { .. } | Token::Template { .. } => Some(TokenType::String),
+        Token::Num { .. } | Token::BigInt { .. } => Some(TokenType::Number),
+        Token::Regex(..) => Some(TokenType::Regex),
 
-    fn visit_big_int_literal(&mut self, lit: &oxc_ast::ast::BigIntLiteral<'a>) {
-        self.add_span(lit.span, TokenType::Number);
-    }
+        // JSX
+        Token::JSXTagStart | Token::JSXTagEnd => Some(TokenType::JsxTag),
 
-    fn visit_reg_exp_literal(&mut self, lit: &oxc_ast::ast::RegExpLiteral<'a>) {
-        self.add_span(lit.span, TokenType::Regex);
-    }
+        // Comments - SWC lexer doesn't emit comments by default
+        // We'd need to enable them in lexer config if needed
 
-    fn visit_template_literal(&mut self, lit: &oxc_ast::ast::TemplateLiteral<'a>) {
-        // Highlight the entire template literal
-        self.add_span(lit.span, TokenType::String);
+        // Skip punctuation and other tokens for now
+        _ => None,
     }
+}
 
-    // Visit keywords through specific statement/expression types
-    fn visit_variable_declaration(&mut self, decl: &oxc_ast::ast::VariableDeclaration<'a>) {
-        // Highlight the keyword (var, let, const)
-        // We can infer the keyword span from the start of the declaration
-        // For simplicity, we'll skip keyword highlighting for now and focus on literals
-        oxc_ast::visit::walk::walk_variable_declaration(self, decl);
+/// Add start and end markers for a token span
+fn add_token_markers(markers: &mut Vec<StyleMarker>, span: Span, token_type: TokenType) {
+    let start = span.lo.0 as usize;
+    let end = span.hi.0 as usize;
+
+    if start < end {
+        markers.push(StyleMarker {
+            offset: start,
+            is_start: true,
+            token_type,
+        });
+        markers.push(StyleMarker {
+            offset: end,
+            is_start: false,
+            token_type,
+        });
     }
 }
 
