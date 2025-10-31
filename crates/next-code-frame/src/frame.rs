@@ -74,6 +74,28 @@ pub fn render_code_frame(
         bail!("source location invalid end_line {end_line} < {start_line}");
     }
 
+    // Normalize end_column:
+    // - If no end_line (single-line error) and no end_column, default to start_column + 1
+    // - If end_line is set but no end_column, that's an error (ambiguous range)
+    // - Otherwise use the provided end_column
+    // Note: We don't validate bounds here, just normalize the structure
+    let end_column = match location.end_column {
+        Some(col) => Some(col),
+        None => {
+            if location.end_line.is_some() {
+                bail!("end_line specified without end_column - ambiguous error range");
+            }
+            // Single-line error without end_column defaults to single-char marker
+            if location.start_column > 0 {
+                Some(location.start_column + 1)
+            } else {
+                None
+            }
+        }
+    };
+
+    // For rendering, we'll clamp columns to valid ranges per-line
+
     // Calculate window of lines to show
     let first_line = start_line.saturating_sub(options.lines_above);
     let last_line = (end_line + options.lines_below + 1).min(lines.len());
@@ -169,148 +191,88 @@ pub fn render_code_frame(
         output.push('\n');
 
         // Add marker line with ^ if this is an error line and we have column info
-        // For multiline errors:
-        // - First line (start_line): marker at start_column
-        // - Last line (end_line): marker at end_column with message
-        // - Middle lines: no marker line (just the > indicator)
-        let should_show_marker =
-            is_error_line && location.start_column > 0 && line_content.len() > 0 && {
-                if line_idx == start_line {
-                    // First line of error: always show marker (will clamp if out of bounds)
-                    true
-                } else if line_idx == end_line {
-                    // Last line of error: show marker at end column if provided
-                    location.end_column.map_or(false, |ec| ec > 0)
-                } else {
-                    // Middle line of multiline error: no marker
-                    false
-                }
-            };
+        // Only show markers on first and last lines (not middle lines of multiline errors)
+        let should_show_marker = is_error_line
+            && location.start_column > 0
+            && line_content.len() > 0
+            && end_column.is_some()
+            && (line_idx == start_line || line_idx == end_line);
 
         if should_show_marker {
             let is_last_error_line = line_idx == end_line;
             let is_single_line_error = start_line == end_line;
 
-            // For single-line errors with both columns, we can show a spanning marker
-            let (marker_col, marker_length) =
-                if is_single_line_error && location.end_column.is_some() {
-                    // Allow columns to go one past line length (pointing after last char)
-                    let max_col = if line_content.len() > 0 {
-                        line_content.len() + 1
+            // Allow columns to go one past line length (pointing after last char)
+            let max_col = if line_content.len() > 0 {
+                line_content.len() + 1
+            } else {
+                1
+            };
+
+            // Determine the column range to mark on this line:
+            // Note: column positions are 1-indexed, ranges are [start, end) exclusive
+            // - Single-line: from start_column to end_column (exclusive)
+            // - First line of multiline: from start_column to end of line
+            // - Last line of multiline: from column 1 to end_column (exclusive)
+            let (range_start, range_end) = if is_single_line_error {
+                // Single-line error: mark from start to end (end is exclusive)
+                (location.start_column, end_column.unwrap())
+            } else if line_idx == start_line {
+                // First line of multiline: mark from start through last character
+                (location.start_column, line_content.len())
+            } else {
+                // Last line of multiline: mark from 1 through end_column
+                // Add 1 to make range exclusive on the right
+                (1, end_column.unwrap() + 1)
+            };
+
+            // Clamp both to reasonable bounds
+            let range_start = range_start.min(max_col);
+            // For end, allow a small extension past line length (for off-by-one cases)
+            // but clamp to prevent excessive spans
+            let reasonable_max = max_col + 1;
+            let range_end = range_end.min(reasonable_max);
+
+            // If range is invalid (end <= start), show single marker at start
+            let (marker_col, marker_length) = if range_end > range_start {
+                // Calculate marker position accounting for truncation
+                let marker_col = if column_offset > 0 {
+                    if range_start > column_offset {
+                        range_start - column_offset + 1
                     } else {
                         1
-                    };
-                    let start_col = location.start_column.min(max_col);
-                    let end_col = location.end_column.unwrap().min(max_col);
-
-                    if end_col > start_col {
-                        // Calculate visible range accounting for truncation
-                        let visible_start = start_col.max(column_offset + 1);
-                        let visible_end = end_col.min(column_offset + available_code_width);
-
-                        let marker_col = if column_offset > 0 {
-                            if start_col > column_offset {
-                                start_col - column_offset + 1
-                            } else {
-                                1
-                            }
-                        } else {
-                            start_col
-                        };
-
-                        let span_length = if visible_end > visible_start {
-                            visible_end - visible_start
-                        } else {
-                            1
-                        };
-
-                        (
-                            marker_col,
-                            span_length.min(available_code_width - (marker_col - 1)),
-                        )
-                    } else {
-                        // end <= start, just show single marker at start
-                        let marker_col = if column_offset > 0 {
-                            if start_col > column_offset {
-                                start_col - column_offset + 1
-                            } else {
-                                1
-                            }
-                        } else {
-                            start_col
-                        };
-                        (marker_col, 1)
-                    }
-                } else if !is_single_line_error {
-                    // Multiline error: show spanning marker
-                    // - First line: from start_column to end of line
-                    // - Last line: from start to end_column
-                    let max_col = if line_content.len() > 0 {
-                        line_content.len() + 1
-                    } else {
-                        1
-                    };
-
-                    if line_idx == start_line {
-                        // First line: marker from start_column to end of visible line
-                        let start_col = location.start_column.min(max_col);
-                        let line_end = line_content.len().min(max_col);
-
-                        let marker_col = if column_offset > 0 {
-                            if start_col > column_offset {
-                                start_col - column_offset + 1
-                            } else {
-                                1
-                            }
-                        } else {
-                            start_col
-                        };
-
-                        // Calculate visible end accounting for truncation
-                        let visible_end = line_end.min(column_offset + available_code_width);
-                        let span_length = if visible_end > start_col {
-                            visible_end - start_col
-                        } else {
-                            1
-                        };
-
-                        (
-                            marker_col,
-                            span_length.min(available_code_width - (marker_col - 1)),
-                        )
-                    } else if is_last_error_line {
-                        // Last line: marker from 1 to end_column
-                        let end_col = location.end_column.unwrap_or(max_col).min(max_col);
-
-                        let marker_col = 1;
-                        let span_length = end_col;
-
-                        (marker_col, span_length.min(available_code_width))
-                    } else {
-                        // Middle line - shouldn't happen due to should_show_marker logic
-                        (1, 1)
                     }
                 } else {
-                    // Single-line error without end_column: show single marker
-                    let max_col = if line_content.len() > 0 {
-                        line_content.len() + 1
+                    range_start
+                };
+
+                // Calculate visible span accounting for truncation
+                let visible_start = range_start.max(column_offset + 1);
+                let visible_end = range_end.min(column_offset + available_code_width);
+
+                let span_length = if visible_end > visible_start {
+                    visible_end - visible_start
+                } else {
+                    1
+                };
+
+                (
+                    marker_col,
+                    span_length.min(available_code_width - (marker_col - 1)),
+                )
+            } else {
+                // Invalid range, show single marker at start
+                let marker_col = if column_offset > 0 {
+                    if range_start > column_offset {
+                        range_start - column_offset + 1
                     } else {
                         1
-                    };
-                    let start_col = location.start_column.min(max_col);
-
-                    let marker_col = if column_offset > 0 {
-                        if start_col > column_offset {
-                            start_col - column_offset + 1
-                        } else {
-                            1
-                        }
-                    } else {
-                        start_col
-                    };
-
-                    (marker_col, 1)
+                    }
+                } else {
+                    range_start
                 };
+                (marker_col, 1)
+            };
 
             output.push_str(color_scheme.reset);
             output.push_str(" "); // Marker column (space instead of >)
