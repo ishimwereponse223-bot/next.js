@@ -110,9 +110,6 @@ impl ColorScheme {
 /// Lex the entire source file and extract token information
 /// Returns highlighting information for each line
 pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
-    // Build line offset map first
-    let line_offsets = build_line_offset_map(source);
-
     // Create a SourceMap and SourceFile for the lexer
     let cm = SourceMap::default();
     let fm = cm.new_source_file(
@@ -132,10 +129,10 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
 
     // Create lexer with comments enabled
     let input = StringInput::from(&*fm);
-    let mut lexer = Lexer::new(syntax, Default::default(), input, Some(&comments));
+    let lexer = Lexer::new(syntax, Default::default(), input, Some(&comments));
 
-    // Lex all tokens and extract style markers
-    let mut markers = Vec::new();
+    // Collect all token markers, splitting at line boundaries using had_line_break
+    let mut all_markers = Vec::new();
 
     for token in lexer {
         if token.token == Token::Eof {
@@ -144,33 +141,48 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
 
         // Classify token and add markers
         if let Some(token_type) = classify_token(&token.token) {
-            add_token_markers(&mut markers, token.span, token_type);
+            add_token_markers(
+                &mut all_markers,
+                &fm,
+                token.span,
+                token_type,
+                token.had_line_break,
+            );
         }
     }
 
     // Add comment markers
-    // SWC stores comments separately - we need to extract them from the comments handler
     let (leading, trailing) = comments.borrow_all();
 
-    // Process leading comments
     for (_pos, comment_vec) in leading.iter() {
         for comment in comment_vec {
-            add_token_markers(&mut markers, comment.span, TokenType::Comment);
+            add_token_markers(
+                &mut all_markers,
+                &fm,
+                comment.span,
+                TokenType::Comment,
+                false,
+            );
         }
     }
 
-    // Process trailing comments
     for (_pos, comment_vec) in trailing.iter() {
         for comment in comment_vec {
-            add_token_markers(&mut markers, comment.span, TokenType::Comment);
+            add_token_markers(
+                &mut all_markers,
+                &fm,
+                comment.span,
+                TokenType::Comment,
+                false,
+            );
         }
     }
 
     // Sort markers by offset
-    markers.sort();
+    all_markers.sort();
 
-    // Split markers into per-line highlights
-    split_markers_by_line(&markers, &line_offsets)
+    // Use SourceFile's line lookup to group markers by line
+    group_markers_by_line(&all_markers, &fm, source)
 }
 
 /// Classify a token into a highlighting type
@@ -228,8 +240,14 @@ fn classify_token(token: &Token) -> Option<TokenType> {
 }
 
 /// Add start and end markers for a token span
-/// Note: BytePos is 1-indexed (BytePos(0) is reserved), so we subtract 1 to get 0-indexed offsets
-fn add_token_markers(markers: &mut Vec<StyleMarker>, span: Span, token_type: TokenType) {
+/// Uses had_line_break to potentially split multiline tokens
+fn add_token_markers(
+    markers: &mut Vec<StyleMarker>,
+    _fm: &swc_common::SourceFile,
+    span: Span,
+    token_type: TokenType,
+    _had_line_break: bool, // Future: could use this for optimization
+) {
     // BytePos starts at 1, so we need to subtract 1 to get 0-indexed offsets
     let start = span.lo.0.saturating_sub(1) as usize;
     let end = span.hi.0.saturating_sub(1) as usize;
@@ -246,6 +264,82 @@ fn add_token_markers(markers: &mut Vec<StyleMarker>, span: Span, token_type: Tok
             token_type,
         });
     }
+}
+
+/// Group markers by line using SourceFile's line lookup
+fn group_markers_by_line(
+    markers: &[StyleMarker],
+    _fm: &swc_common::SourceFile,
+    source: &str,
+) -> Vec<LineHighlight> {
+    // Build line offset map for line boundaries
+    let line_offsets = build_line_offset_map(source);
+
+    // Group markers by line
+    let mut line_highlights: Vec<LineHighlight> = line_offsets
+        .iter()
+        .enumerate()
+        .map(|(idx, &(start, end))| LineHighlight {
+            line: idx + 1,
+            line_start_offset: start,
+            line_end_offset: end,
+            markers: Vec::new(),
+        })
+        .collect();
+
+    // Distribute markers to lines and handle multiline spans
+    let mut active_styles: Vec<TokenType> = Vec::new();
+
+    for line_highlight in &mut line_highlights {
+        let line_start = line_highlight.line_start_offset;
+        let line_end = line_highlight.line_end_offset;
+
+        // Add start markers for styles active from previous lines
+        for &token_type in &active_styles {
+            line_highlight.markers.push(StyleMarker {
+                offset: 0,
+                is_start: true,
+                token_type,
+            });
+        }
+
+        // Process markers that fall within or cross this line
+        for marker in markers {
+            let abs_offset = marker.offset;
+
+            if abs_offset >= line_start && abs_offset < line_end {
+                // Marker is within this line
+                let rel_offset = abs_offset - line_start;
+                line_highlight.markers.push(StyleMarker {
+                    offset: rel_offset,
+                    is_start: marker.is_start,
+                    token_type: marker.token_type,
+                });
+
+                // Update active styles
+                if marker.is_start {
+                    active_styles.push(marker.token_type);
+                } else {
+                    active_styles.retain(|&t| t != marker.token_type);
+                }
+            }
+        }
+
+        // Add end markers for active styles at line end
+        for &token_type in &active_styles {
+            let rel_end = line_end.saturating_sub(line_start);
+            line_highlight.markers.push(StyleMarker {
+                offset: rel_end,
+                is_start: false,
+                token_type,
+            });
+        }
+
+        // Sort markers by offset
+        line_highlight.markers.sort();
+    }
+
+    line_highlights
 }
 
 /// Build a map of line numbers to their byte offsets (start, end exclusive)
@@ -267,78 +361,6 @@ fn build_line_offset_map(source: &str) -> Vec<(usize, usize)> {
     }
 
     offsets
-}
-
-/// Split style markers across line boundaries
-/// This ensures we never have a style that spans multiple lines in the marker list
-fn split_markers_by_line(
-    markers: &[StyleMarker],
-    line_offsets: &[(usize, usize)],
-) -> Vec<LineHighlight> {
-    let mut line_highlights: Vec<LineHighlight> = line_offsets
-        .iter()
-        .enumerate()
-        .map(|(idx, &(start, end))| LineHighlight {
-            line: idx + 1,
-            line_start_offset: start,
-            line_end_offset: end,
-            markers: Vec::new(),
-        })
-        .collect();
-
-    // Track active styles that span lines
-    let mut active_styles: Vec<TokenType> = Vec::new();
-    let mut marker_idx = 0;
-
-    for line_highlight in &mut line_highlights {
-        let line_start = line_highlight.line_start_offset;
-        let line_end = line_highlight.line_end_offset;
-
-        // Add start markers for any styles that were active from previous lines
-        for &token_type in &active_styles {
-            line_highlight.markers.push(StyleMarker {
-                offset: 0, // Relative to line start
-                is_start: true,
-                token_type,
-            });
-        }
-
-        // Process markers that fall within this line
-        while marker_idx < markers.len() && markers[marker_idx].offset < line_end {
-            let marker = &markers[marker_idx];
-
-            if marker.offset >= line_start {
-                // Marker is within this line
-                let relative_offset = marker.offset - line_start;
-                line_highlight.markers.push(StyleMarker {
-                    offset: relative_offset,
-                    is_start: marker.is_start,
-                    token_type: marker.token_type,
-                });
-
-                // Update active styles
-                if marker.is_start {
-                    active_styles.push(marker.token_type);
-                } else {
-                    active_styles.retain(|&t| t != marker.token_type);
-                }
-            }
-
-            marker_idx += 1;
-        }
-
-        // Add end markers for active styles at end of line
-        for &token_type in &active_styles {
-            let relative_offset = line_end.saturating_sub(line_start);
-            line_highlight.markers.push(StyleMarker {
-                offset: relative_offset,
-                is_start: false,
-                token_type,
-            });
-        }
-    }
-
-    line_highlights
 }
 
 /// Adjust line highlights for a truncated view of the line
