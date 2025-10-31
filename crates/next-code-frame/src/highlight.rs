@@ -1,4 +1,4 @@
-use swc_common::{SourceMap, Span};
+use swc_common::{SourceMap, Span, comments::SingleThreadedComments};
 use swc_ecma_lexer::{Lexer, StringInput, Syntax, TsSyntax, token::Token};
 
 /// A style marker at a specific byte offset in the source
@@ -127,9 +127,12 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
         ..Default::default()
     });
 
-    // Create lexer
+    // Create comments handler to capture comments
+    let comments = SingleThreadedComments::default();
+
+    // Create lexer with comments enabled
     let input = StringInput::from(&*fm);
-    let mut lexer = Lexer::new(syntax, Default::default(), input, None);
+    let mut lexer = Lexer::new(syntax, Default::default(), input, Some(&comments));
 
     // Lex all tokens and extract style markers
     let mut markers = Vec::new();
@@ -153,6 +156,24 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
         }
     }
 
+    // Add comment markers
+    // SWC stores comments separately - we need to extract them from the comments handler
+    let (leading, trailing) = comments.borrow_all();
+
+    // Process leading comments
+    for (_pos, comment_vec) in leading.iter() {
+        for comment in comment_vec {
+            add_token_markers(&mut markers, comment.span, TokenType::Comment);
+        }
+    }
+
+    // Process trailing comments
+    for (_pos, comment_vec) in trailing.iter() {
+        for comment in comment_vec {
+            add_token_markers(&mut markers, comment.span, TokenType::Comment);
+        }
+    }
+
     // Sort markers by offset
     markers.sort();
 
@@ -165,10 +186,10 @@ fn classify_token(token: &Token) -> Option<TokenType> {
     match token {
         // Keywords
         Token::Word(word) => match word {
-            swc_ecma_lexer::token::Word::Keyword(_) => Some(TokenType::Keyword),
             swc_ecma_lexer::token::Word::Null
             | swc_ecma_lexer::token::Word::True
-            | swc_ecma_lexer::token::Word::False => Some(TokenType::Keyword),
+            | swc_ecma_lexer::token::Word::False
+            | swc_ecma_lexer::token::Word::Keyword(_) => Some(TokenType::Keyword),
             swc_ecma_lexer::token::Word::Ident(_) => Some(TokenType::Identifier),
         },
 
@@ -180,10 +201,36 @@ fn classify_token(token: &Token) -> Option<TokenType> {
         // JSX
         Token::JSXTagStart | Token::JSXTagEnd => Some(TokenType::JsxTag),
 
-        // Comments - SWC lexer doesn't emit comments by default
-        // We'd need to enable them in lexer config if needed
+        // Brackets - leave unstyled like Babel does
+        Token::LParen
+        | Token::RParen
+        | Token::LBrace
+        | Token::RBrace
+        | Token::LBracket
+        | Token::RBracket => None,
 
-        // Skip punctuation and other tokens for now
+        // Punctuation - all other punctuation tokens (yellow in Babel)
+        // This includes: ; , . ... => : ? operators @ # etc
+        Token::Arrow
+        | Token::Dot
+        | Token::DotDotDot
+        | Token::Semi
+        | Token::Comma
+        | Token::Colon
+        | Token::QuestionMark
+        | Token::BinOp(_)
+        | Token::AssignOp(_)
+        | Token::Bang
+        | Token::Tilde
+        | Token::PlusPlus
+        | Token::MinusMinus
+        | Token::Hash
+        | Token::At
+        | Token::BackQuote
+        | Token::DollarLBrace => Some(TokenType::Punctuation),
+
+        // Comments are handled separately via the comments API
+        // Everything else is left unstyled
         _ => None,
     }
 }
@@ -500,5 +547,61 @@ mod tests {
         assert!(!adjusted.markers.is_empty());
         // There should be at least one start marker in the visible range
         assert!(adjusted.markers.iter().any(|m| m.is_start));
+    }
+
+    #[test]
+    fn test_comments_and_punctuation() {
+        let source = "const x = 42; // comment\nobj.foo = 10;";
+        let highlights = extract_highlights(source);
+
+        // Should have 2 lines
+        assert_eq!(highlights.len(), 2);
+
+        // First line should have comment markers
+        let line1_has_comment = highlights[0]
+            .markers
+            .iter()
+            .any(|m| m.token_type == TokenType::Comment);
+        assert!(line1_has_comment, "First line should have comment markers");
+
+        // Both lines should have punctuation markers (=, ;, .)
+        let line1_has_punctuation = highlights[0]
+            .markers
+            .iter()
+            .any(|m| m.token_type == TokenType::Punctuation);
+        let line2_has_punctuation = highlights[1]
+            .markers
+            .iter()
+            .any(|m| m.token_type == TokenType::Punctuation);
+        assert!(
+            line1_has_punctuation,
+            "First line should have punctuation markers"
+        );
+        assert!(
+            line2_has_punctuation,
+            "Second line should have punctuation markers"
+        );
+    }
+
+    #[test]
+    fn test_multiline_comment() {
+        let source = "const x = 1;\n/* multi\n   line */\nconst y = 2;";
+        let highlights = extract_highlights(source);
+
+        // Should have 4 lines
+        assert_eq!(highlights.len(), 4);
+
+        // Lines 2 and 3 should have comment markers
+        let line2_has_comment = highlights[1]
+            .markers
+            .iter()
+            .any(|m| m.token_type == TokenType::Comment);
+        let line3_has_comment = highlights[2]
+            .markers
+            .iter()
+            .any(|m| m.token_type == TokenType::Comment);
+
+        assert!(line2_has_comment, "Line 2 should have comment marker");
+        assert!(line3_has_comment, "Line 3 should have comment marker");
     }
 }
