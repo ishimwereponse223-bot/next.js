@@ -259,9 +259,15 @@ pub fn render_code_frame(
             output.push_str(&format!(" {:>width$} |", "", width = gutter_width));
             output.push_str(color_scheme.reset);
             output.push(' ');
-            output.push_str(&" ".repeat(marker_col - 1));
+            // Push spaces directly without temporary allocation
+            for _ in 0..(marker_col - 1) {
+                output.push(' ');
+            }
             output.push_str(color_scheme.marker);
-            output.push_str(&"^".repeat(marker_length));
+            // Push carets directly without temporary allocation
+            for _ in 0..marker_length {
+                output.push('^');
+            }
             output.push_str(color_scheme.reset);
 
             // Add message only on the last error line's marker
