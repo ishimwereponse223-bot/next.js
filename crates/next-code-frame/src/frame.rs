@@ -80,40 +80,41 @@ fn apply_line_truncation(
 fn calculate_marker_position(
     location_start_column: usize,
     end_column: usize,
-    line_content: &str,
+    line_length: usize,
     line_idx: usize,
     start_line: usize,
     end_line: usize,
     column_offset: usize,
     available_code_width: usize,
 ) -> (usize, usize) {
-    let is_last_error_line = line_idx == end_line;
-    let is_single_line_error = start_line == end_line;
-
     // Allow columns to go one past line length (pointing after last char)
-    let max_col = line_content.len() + 1;
+    let max_col = line_length + 1;
 
     // Determine the column range to mark on this line:
-    // Note: column positions are 1-indexed, ranges are [start, end) exclusive
-    // - Single-line: from start_column to end_column (exclusive)
+    // Note: We use exclusive ranges [start, end) for internal calculation
+    //
+    // For single-line errors: end_column is already exclusive (from normalization)
+    // For multiline errors: end_column is inclusive (as user provided), so we add +1
+    //
+    // - Single-line: from start_column to end_column (end_column is exclusive)
     // - First line of multiline: from start_column to end of line
-    // - Last line of multiline: from column 1 to end_column (exclusive)
+    // - Last line of multiline: from column 1 to end_column+1 (converting inclusive to exclusive)
+    let is_single_line_error = start_line == end_line;
+
     let (range_start, range_end) = if is_single_line_error {
-        // Single-line error: mark from start to end (end is exclusive)
+        // Single-line: end_column is already exclusive after normalization
         (location_start_column, end_column)
     } else if line_idx == start_line {
-        // First line of multiline: mark from start through last character
-        (location_start_column, line_content.len())
+        // First line of multiline: mark from start to end of line
+        (location_start_column, line_length)
     } else {
-        // Last line of multiline: mark from 1 through end_column
-        // Add 1 to make range exclusive on the right
+        // Last line of multiline: convert inclusive end_column to exclusive
         (1, end_column + 1)
     };
 
-    // Clamp both to reasonable bounds
+    // Clamp to reasonable bounds
     let range_start = range_start.min(max_col);
-    // For end, allow a small extension past line length (for off-by-one cases)
-    // but clamp to prevent excessive spans
+    // Allow small extension past line for off-by-one, but prevent excessive spans
     let reasonable_max = max_col + 1;
     let range_end = range_end.min(reasonable_max);
 
@@ -171,21 +172,23 @@ pub fn render_code_frame(
     }
 
     // Normalize end_column:
-    // - If no end_line (single-line error) and no end_column, default to start_column + 1
+    // For single-line errors: end_column will be exclusive (one past last char)
+    // For multiline errors: end_column remains inclusive (as provided by user)
+    // - If no end_line (single-line) and no end_column, default to start_column + 1 (exclusive)
     // - If end_line is set but no end_column, that's an error (ambiguous range)
-    // - Otherwise use the provided end_column
-    // Note: We don't validate bounds here, just normalize the structure
+    // - Otherwise use the provided end_column as-is
     let end_column = match location.end_column {
-        Some(col) => Some(col),
+        Some(col) => col,
         None => {
             if location.end_line.is_some() {
                 bail!("end_line specified without end_column - ambiguous error range");
             }
             // Single-line error without end_column defaults to single-char marker
+            // end_column = start_column + 1 (exclusive) means mark exactly one character
             if location.start_column > 0 {
-                Some(location.start_column + 1)
+                location.start_column + 1
             } else {
-                None
+                0
             }
         }
     };
@@ -287,14 +290,13 @@ pub fn render_code_frame(
         let should_show_marker = is_error_line
             && location.start_column > 0
             && !line_content.is_empty()
-            && end_column.is_some()
             && (line_idx == start_line || line_idx == end_line);
 
         if should_show_marker {
             let (marker_col, marker_length) = calculate_marker_position(
                 location.start_column,
-                end_column.unwrap(),
-                line_content,
+                end_column,
+                line_content.len(),
                 line_idx,
                 start_line,
                 end_line,
