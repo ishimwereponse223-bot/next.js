@@ -240,127 +240,125 @@ fn classify_token(token: &Token) -> Option<TokenType> {
 }
 
 /// Add start and end markers for a token span
-/// Uses had_line_break to potentially split multiline tokens
+/// Splits markers at line boundaries for multiline tokens using lookup_line
 fn add_token_markers(
     markers: &mut Vec<StyleMarker>,
-    _fm: &swc_common::SourceFile,
+    fm: &swc_common::SourceFile,
     span: Span,
     token_type: TokenType,
-    _had_line_break: bool, // Future: could use this for optimization
+    had_line_break: bool,
 ) {
     // BytePos starts at 1, so we need to subtract 1 to get 0-indexed offsets
     let start = span.lo.0.saturating_sub(1) as usize;
     let end = span.hi.0.saturating_sub(1) as usize;
 
-    if start < end {
-        markers.push(StyleMarker {
-            offset: start,
-            is_start: true,
-            token_type,
-        });
-        markers.push(StyleMarker {
-            offset: end,
-            is_start: false,
-            token_type,
-        });
+    if start >= end {
+        return;
     }
-}
 
-/// Group markers by line using SourceFile's line lookup
-fn group_markers_by_line(
-    markers: &[StyleMarker],
-    _fm: &swc_common::SourceFile,
-    source: &str,
-) -> Vec<LineHighlight> {
-    // Build line offset map for line boundaries
-    let line_offsets = build_line_offset_map(source);
+    // Check if this token spans multiple lines using lookup_line (O(log n))
+    // Only do this check when had_line_break is true (rare case - only after newlines)
+    if had_line_break
+        && let (Some(start_line), Some(end_line)) =
+            (fm.lookup_line(span.lo), fm.lookup_line(span.hi))
+        && start_line != end_line
+    {
+        // Token spans multiple lines - split markers at line boundaries
+        for line_idx in start_line..=end_line {
+            let (line_start_pos, line_end_pos) = fm.line_bounds(line_idx);
+            let line_start = line_start_pos.0.saturating_sub(1) as usize;
+            let line_end = line_end_pos.0.saturating_sub(1) as usize;
 
-    // Group markers by line
-    let mut line_highlights: Vec<LineHighlight> = line_offsets
-        .iter()
-        .enumerate()
-        .map(|(idx, &(start, end))| LineHighlight {
-            line: idx + 1,
-            line_start_offset: start,
-            line_end_offset: end,
-            markers: Vec::new(),
-        })
-        .collect();
+            let marker_start = start.max(line_start);
+            let marker_end = end.min(line_end);
 
-    // Distribute markers to lines and handle multiline spans
-    let mut active_styles: Vec<TokenType> = Vec::new();
-
-    for line_highlight in &mut line_highlights {
-        let line_start = line_highlight.line_start_offset;
-        let line_end = line_highlight.line_end_offset;
-
-        // Add start markers for styles active from previous lines
-        for &token_type in &active_styles {
-            line_highlight.markers.push(StyleMarker {
-                offset: 0,
-                is_start: true,
-                token_type,
-            });
-        }
-
-        // Process markers that fall within or cross this line
-        for marker in markers {
-            let abs_offset = marker.offset;
-
-            if abs_offset >= line_start && abs_offset < line_end {
-                // Marker is within this line
-                let rel_offset = abs_offset - line_start;
-                line_highlight.markers.push(StyleMarker {
-                    offset: rel_offset,
-                    is_start: marker.is_start,
-                    token_type: marker.token_type,
+            if marker_start < marker_end {
+                markers.push(StyleMarker {
+                    offset: marker_start,
+                    is_start: true,
+                    token_type,
                 });
-
-                // Update active styles
-                if marker.is_start {
-                    active_styles.push(marker.token_type);
-                } else {
-                    active_styles.retain(|&t| t != marker.token_type);
-                }
+                markers.push(StyleMarker {
+                    offset: marker_end,
+                    is_start: false,
+                    token_type,
+                });
             }
         }
+        return;
+    }
 
-        // Add end markers for active styles at line end
-        for &token_type in &active_styles {
-            let rel_end = line_end.saturating_sub(line_start);
-            line_highlight.markers.push(StyleMarker {
-                offset: rel_end,
-                is_start: false,
-                token_type,
+    // Single-line token - add markers directly
+    markers.push(StyleMarker {
+        offset: start,
+        is_start: true,
+        token_type,
+    });
+    markers.push(StyleMarker {
+        offset: end,
+        is_start: false,
+        token_type,
+    });
+}
+
+/// Group markers by line using SourceFile's line_bounds API
+/// Complexity: O(markers + lines) using a single pass with marker index
+fn group_markers_by_line(
+    markers: &[StyleMarker],
+    fm: &swc_common::SourceFile,
+    source: &str,
+) -> Vec<LineHighlight> {
+    if source.is_empty() {
+        return Vec::new();
+    }
+
+    // Get line count from SourceFile
+    let line_count = fm.count_lines();
+    let mut line_highlights: Vec<LineHighlight> = Vec::with_capacity(line_count);
+
+    // Track our position in the markers array (sorted by offset)
+    let mut marker_idx = 0;
+
+    // Process each line
+    for line_idx in 0..line_count {
+        let (line_start_pos, line_end_pos) = fm.line_bounds(line_idx);
+        let line_start = line_start_pos.0.saturating_sub(1) as usize;
+        let line_end = line_end_pos.0.saturating_sub(1) as usize;
+
+        let mut line_markers = Vec::new();
+
+        // Process all markers that fall within this line
+        // Since markers are sorted, we only need to check from marker_idx forward
+        while marker_idx < markers.len() {
+            let marker = &markers[marker_idx];
+            let abs_offset = marker.offset;
+
+            // If marker is past this line, we're done with this line
+            if abs_offset >= line_end {
+                break;
+            }
+            // the marker must be within this line
+            debug_assert!(abs_offset >= line_start);
+
+            let rel_offset = abs_offset - line_start;
+            line_markers.push(StyleMarker {
+                offset: rel_offset,
+                is_start: marker.is_start,
+                token_type: marker.token_type,
             });
+
+            marker_idx += 1;
         }
 
-        // Sort markers by offset
-        line_highlight.markers.sort();
+        line_highlights.push(LineHighlight {
+            line: line_idx + 1,
+            line_start_offset: line_start,
+            line_end_offset: line_end,
+            markers: line_markers,
+        });
     }
 
     line_highlights
-}
-
-/// Build a map of line numbers to their byte offsets (start, end exclusive)
-fn build_line_offset_map(source: &str) -> Vec<(usize, usize)> {
-    let mut offsets = Vec::new();
-    let mut start = 0;
-
-    for (idx, _) in source.match_indices('\n') {
-        offsets.push((start, idx + 1)); // Include the newline
-        start = idx + 1;
-    }
-
-    // Add the last line if it doesn't end with newline
-    if start < source.len() {
-        offsets.push((start, source.len()));
-    } else if start == source.len() && !source.is_empty() {
-        // File ends with newline, add empty last line
-        offsets.push((start, start));
-    }
-
-    offsets
 }
 
 /// Adjust line highlights for a truncated view of the line
