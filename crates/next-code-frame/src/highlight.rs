@@ -137,22 +137,14 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
     // Lex all tokens and extract style markers
     let mut markers = Vec::new();
 
-    loop {
-        match lexer.next() {
-            Some(token) => {
-                if token.token == Token::Eof {
-                    break;
-                }
+    for token in lexer {
+        if token.token == Token::Eof {
+            break;
+        }
 
-                // Classify token and add markers
-                if let Some(token_type) = classify_token(&token.token) {
-                    add_token_markers(&mut markers, token.span, token_type);
-                }
-            }
-            None => {
-                // End of input
-                break;
-            }
+        // Classify token and add markers
+        if let Some(token_type) = classify_token(&token.token) {
+            add_token_markers(&mut markers, token.span, token_type);
         }
     }
 
@@ -435,35 +427,35 @@ pub fn apply_line_highlights(
     result
 }
 
-/// Strip ANSI escape codes from a string
-/// This is useful for testing to verify content without color codes
-pub fn strip_ansi_codes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
+#[cfg(test)]
+pub mod tests {
+    use super::*;
 
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            // Skip ANSI escape sequence
-            // Format: ESC [ <params> <command>
-            if chars.next() == Some('[') {
-                // Skip until we find a letter (the command character)
-                for ch in chars.by_ref() {
-                    if ch.is_alphabetic() {
-                        break;
+    /// Strip ANSI escape codes from a string
+    /// This is useful for testing to verify content without color codes
+    pub fn strip_ansi_codes(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut chars = s.chars();
+
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                // Skip ANSI escape sequence
+                // Format: ESC [ <params> <command>
+                if chars.next() == Some('[') {
+                    // Skip until we find a letter (the command character)
+                    for ch in chars.by_ref() {
+                        if ch.is_alphabetic() {
+                            break;
+                        }
                     }
                 }
+            } else {
+                result.push(ch);
             }
-        } else {
-            result.push(ch);
         }
+
+        result
     }
-
-    result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn test_extract_highlights_basic() {

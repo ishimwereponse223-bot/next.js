@@ -1,8 +1,23 @@
 use insta::assert_snapshot;
 
 use crate::{
-    CodeFrameLocation, CodeFrameOptions, Location, highlight::strip_ansi_codes, render_code_frame,
+    CodeFrameLocation, CodeFrameOptions, Location, highlight::tests::strip_ansi_codes,
+    render_code_frame,
 };
+
+/// Helper function to render code frame with highlighting enabled and ANSI codes stripped
+/// This ensures highlighting doesn't break the basic formatting
+fn render_for_snapshot(
+    source: &str,
+    location: &CodeFrameLocation,
+    options: &CodeFrameOptions,
+) -> Result<String, anyhow::Error> {
+    let mut opts_with_highlighting = options.clone();
+    opts_with_highlighting.highlight_code = true;
+
+    let result = render_code_frame(source, location, &opts_with_highlighting)?;
+    Ok(strip_ansi_codes(&result))
+}
 
 #[test]
 fn test_simple_single_line_error() {
@@ -17,7 +32,7 @@ fn test_simple_single_line_error() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | console.log('hello')
         | ^
@@ -37,7 +52,7 @@ fn test_empty_source() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @"");
 }
 
@@ -57,7 +72,7 @@ fn test_invalid_line_number() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @"");
 }
 
@@ -77,7 +92,7 @@ fn test_multiline_error() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
       1 | function test() {
     > 2 |   console.log('hello')
@@ -105,7 +120,7 @@ fn test_multiline_error_with_message() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
       1 | function test() {
     > 2 |   console.log('hello')
@@ -130,7 +145,7 @@ fn test_with_message() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | const x = 1
         |       ^ Expected semicolon
@@ -157,7 +172,7 @@ fn test_long_line_single_error() {
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_for_snapshot(&source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
       1 | ...
     > 2 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
@@ -183,7 +198,7 @@ fn test_long_line_at_start() {
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_for_snapshot(&source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
         |     ^
@@ -210,7 +225,7 @@ fn test_long_line_at_end() {
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_for_snapshot(&source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         |                                                 ^
@@ -241,7 +256,7 @@ fn test_long_line_multiline_aligned() {
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_for_snapshot(&source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
       1 | ...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...
     > 2 | ...cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...
@@ -265,7 +280,7 @@ fn test_context_lines() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
       2 | line 2
       3 | line 3
@@ -297,7 +312,7 @@ fn test_gutter_width_alignment() {
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_for_snapshot(&source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
        97 | line 97
        98 | line 98
@@ -331,7 +346,7 @@ fn test_large_file() {
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_for_snapshot(&source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
       24998 | line 24998 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
       24999 | line 24999 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -365,7 +380,7 @@ fn test_long_error_span() {
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_for_snapshot(&source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
         |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -399,7 +414,7 @@ Another paragraph.
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
       1 | # Title
       2 |
@@ -428,7 +443,7 @@ fn test_invalid_column_start_out_of_bounds() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | short
         |      ^
@@ -452,7 +467,7 @@ fn test_invalid_column_end_before_start() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | const x = 123;
         |           ^
@@ -479,7 +494,7 @@ fn test_invalid_column_both_out_of_bounds() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | abc
         |    ^
@@ -503,7 +518,7 @@ fn test_invalid_multiline_end_column_out_of_bounds() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | line1
         |  ^^^
@@ -536,7 +551,7 @@ fn test_column_semantics_explicit_end() {
         ..Default::default()
     };
 
-    let result = render_code_frame(source, &location, &options).unwrap();
+    let result = render_for_snapshot(source, &location, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | const x = 123;
         |           ^
@@ -555,7 +570,7 @@ fn test_column_semantics_explicit_end() {
         }), // Exclusive: marks [11, 14) = columns 11, 12, 13
     };
 
-    let result = render_code_frame(source, &location2, &options).unwrap();
+    let result = render_for_snapshot(source, &location2, &options).unwrap();
     assert_snapshot!(result, @r"
     > 1 | const x = 123;
         |           ^^^
