@@ -48,6 +48,16 @@ impl Default for CodeFrameOptions {
     }
 }
 
+/// Efficiently pushes a character repeated `count` times into the string buffer
+/// Reserves capacity upfront to avoid multiple allocations
+#[inline]
+fn repeat_char_into(s: &mut String, ch: char, count: usize) {
+    s.reserve(count);
+    for _ in 0..count {
+        s.push(ch);
+    }
+}
+
 /// Renders a code frame showing the location of an error in source code
 pub fn render_code_frame(
     source: &str,
@@ -136,13 +146,11 @@ pub fn render_code_frame(
     // Add message if provided and no column specified
     if let Some(ref message) = options.message {
         if location.start_column == 0 {
-            output.push_str(&format!(
-                "{}{}{}{}\n",
-                " ".repeat(gutter_total_width),
-                color_scheme.marker,
-                message,
-                color_scheme.reset
-            ));
+            repeat_char_into(&mut output, ' ', gutter_total_width);
+            output.push_str(color_scheme.marker);
+            output.push_str(message);
+            output.push_str(color_scheme.reset);
+            output.push('\n');
         }
     }
 
@@ -259,15 +267,9 @@ pub fn render_code_frame(
             output.push_str(&format!(" {:>width$} |", "", width = gutter_width));
             output.push_str(color_scheme.reset);
             output.push(' ');
-            // Push spaces directly without temporary allocation
-            for _ in 0..(marker_col - 1) {
-                output.push(' ');
-            }
+            repeat_char_into(&mut output, ' ', marker_col - 1);
             output.push_str(color_scheme.marker);
-            // Push carets directly without temporary allocation
-            for _ in 0..marker_length {
-                output.push('^');
-            }
+            repeat_char_into(&mut output, '^', marker_length);
             output.push_str(color_scheme.reset);
 
             // Add message only on the last error line's marker
