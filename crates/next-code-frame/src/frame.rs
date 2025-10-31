@@ -144,14 +144,14 @@ pub fn render_code_frame(
     let mut output = String::new();
 
     // Add message if provided and no column specified
-    if let Some(ref message) = options.message {
-        if location.start_column == 0 {
-            repeat_char_into(&mut output, ' ', gutter_total_width);
-            output.push_str(color_scheme.marker);
-            output.push_str(message);
-            output.push_str(color_scheme.reset);
-            output.push('\n');
-        }
+    if let Some(ref message) = options.message
+        && location.start_column == 0
+    {
+        repeat_char_into(&mut output, ' ', gutter_total_width);
+        output.push_str(color_scheme.marker);
+        output.push_str(message);
+        output.push_str(color_scheme.reset);
+        output.push('\n');
     }
 
     // Render each line
@@ -202,7 +202,7 @@ pub fn render_code_frame(
         // Only show markers on first and last lines (not middle lines of multiline errors)
         let should_show_marker = is_error_line
             && location.start_column > 0
-            && line_content.len() > 0
+            && !line_content.is_empty()
             && end_column.is_some()
             && (line_idx == start_line || line_idx == end_line);
 
@@ -262,7 +262,7 @@ pub fn render_code_frame(
             };
 
             output.push_str(color_scheme.reset);
-            output.push_str(" "); // Marker column (space instead of >)
+            output.push(' '); // Marker column (space instead of >)
             output.push_str(color_scheme.gutter);
             output.push_str(&format!(" {:>width$} |", "", width = gutter_width));
             output.push_str(color_scheme.reset);
@@ -273,13 +273,11 @@ pub fn render_code_frame(
             output.push_str(color_scheme.reset);
 
             // Add message only on the last error line's marker
-            if is_last_error_line {
-                if let Some(ref message) = options.message {
-                    output.push(' ');
-                    output.push_str(color_scheme.marker);
-                    output.push_str(message);
-                    output.push_str(color_scheme.reset);
-                }
+            if is_last_error_line && let Some(ref message) = options.message {
+                output.push(' ');
+                output.push_str(color_scheme.marker);
+                output.push_str(message);
+                output.push_str(color_scheme.reset);
             }
 
             output.push('\n');

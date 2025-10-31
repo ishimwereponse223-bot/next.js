@@ -6,12 +6,11 @@ pub fn get_terminal_width() -> usize {
     #[cfg(not(target_arch = "wasm32"))]
     {
         // Check COLUMNS environment variable first
-        if let Ok(cols) = std::env::var("COLUMNS") {
-            if let Ok(width) = cols.parse::<usize>() {
-                if width > 0 {
-                    return width;
-                }
-            }
+        if let Ok(cols) = std::env::var("COLUMNS")
+            && let Ok(width) = cols.parse::<usize>()
+            && width > 0
+        {
+            return width;
         }
 
         // Try platform-specific terminal size detection
