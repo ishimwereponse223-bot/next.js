@@ -1,6 +1,12 @@
 use anyhow::{Result, bail};
 
-use crate::{highlight::ColorScheme, terminal::get_terminal_width};
+use crate::{
+    highlight::{
+        ColorScheme, LineHighlight, adjust_highlights_for_truncation, apply_line_highlights,
+        extract_highlights,
+    },
+    terminal::get_terminal_width,
+};
 
 /// A source location with line and column
 #[derive(Debug, Clone, Copy)]
@@ -171,6 +177,14 @@ pub fn render_code_frame(
     if source.is_empty() {
         return Ok(String::new());
     }
+
+    // Extract syntax highlights if enabled
+    let line_highlights: Vec<LineHighlight> = if options.highlight_code {
+        extract_highlights(source)
+    } else {
+        Vec::new()
+    };
+
     // Split source into lines
     let lines: Vec<&str> = source.lines().collect();
 
@@ -265,6 +279,19 @@ pub fn render_code_frame(
         // Apply consistent truncation to all lines
         let (visible_content, column_offset) =
             apply_line_truncation(line_content, truncation_offset, available_code_width);
+
+        // Apply syntax highlighting if enabled
+        let visible_content = if options.highlight_code && line_idx < line_highlights.len() {
+            // Adjust highlights for truncation
+            let adjusted_highlight = adjust_highlights_for_truncation(
+                &line_highlights[line_idx],
+                truncation_offset,
+                visible_content.len(),
+            );
+            apply_line_highlights(&visible_content, &adjusted_highlight, &color_scheme)
+        } else {
+            visible_content
+        };
 
         // Line prefix with number
         if is_error_line {

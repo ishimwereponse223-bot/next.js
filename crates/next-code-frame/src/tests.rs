@@ -1,6 +1,8 @@
 use insta::assert_snapshot;
 
-use crate::{CodeFrameLocation, CodeFrameOptions, Location, render_code_frame};
+use crate::{
+    CodeFrameLocation, CodeFrameOptions, Location, highlight::strip_ansi_codes, render_code_frame,
+};
 
 #[test]
 fn test_simple_single_line_error() {
@@ -558,4 +560,57 @@ fn test_column_semantics_explicit_end() {
     > 1 | const x = 123;
         |           ^^^
     ");
+}
+
+#[test]
+fn test_highlighting_doesnt_break_formatting() {
+    // This test ensures that enabling highlighting doesn't mess up the basic formatting
+    // We render with highlighting enabled but strip ANSI codes and verify output matches
+    let source = "const foo = 'bar';";
+    let location = CodeFrameLocation {
+        start: Location { line: 1, column: 7 },
+        end: Some(Location {
+            line: 1,
+            column: 10, // Exclusive: marks "foo"
+        }),
+    };
+
+    // Render WITHOUT highlighting
+    let options_plain = CodeFrameOptions {
+        use_colors: false,
+        highlight_code: false,
+        ..Default::default()
+    };
+    let result_plain = render_code_frame(source, &location, &options_plain).unwrap();
+
+    // Render WITH highlighting but use_colors=false so we get plain output
+    let options_highlighted = CodeFrameOptions {
+        use_colors: false,
+        highlight_code: true,
+        ..Default::default()
+    };
+    let result_highlighted = render_code_frame(source, &location, &options_highlighted).unwrap();
+
+    // With use_colors=false, both should be identical
+    assert_eq!(
+        result_plain, result_highlighted,
+        "Highlighting with use_colors=false should produce identical output"
+    );
+
+    // Also test with colors enabled and then stripped
+    let options_colored = CodeFrameOptions {
+        use_colors: true,
+        highlight_code: true,
+        ..Default::default()
+    };
+    let result_colored = render_code_frame(source, &location, &options_colored).unwrap();
+
+    // Strip ANSI codes
+    let result_stripped = strip_ansi_codes(&result_colored);
+
+    // After stripping, should match the plain output
+    assert_eq!(
+        result_plain, result_stripped,
+        "Highlighted output with ANSI codes stripped should match plain output"
+    );
 }

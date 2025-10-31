@@ -302,6 +302,46 @@ fn split_markers_by_line(
     line_highlights
 }
 
+/// Adjust line highlights for a truncated view of the line
+/// Returns a new LineHighlight with markers adjusted for the truncation offset
+pub fn adjust_highlights_for_truncation(
+    line_highlight: &LineHighlight,
+    truncation_offset: usize,
+    visible_length: usize,
+) -> LineHighlight {
+    let visible_end = truncation_offset + visible_length;
+    let mut adjusted_markers = Vec::new();
+
+    for marker in &line_highlight.markers {
+        let abs_offset = marker.offset;
+
+        // Skip markers before the visible range
+        if abs_offset < truncation_offset {
+            continue;
+        }
+
+        // Skip markers after the visible range
+        if abs_offset > visible_end {
+            continue;
+        }
+
+        // Adjust offset relative to truncation
+        adjusted_markers.push(StyleMarker {
+            offset: abs_offset - truncation_offset,
+            is_start: marker.is_start,
+            token_type: marker.token_type,
+        });
+    }
+
+    LineHighlight {
+        line: line_highlight.line,
+        line_start_offset: line_highlight.line_start_offset + truncation_offset,
+        line_end_offset: (line_highlight.line_start_offset + visible_end)
+            .min(line_highlight.line_end_offset),
+        markers: adjusted_markers,
+    }
+}
+
 /// Apply highlights to a line of text
 /// Returns the styled text with ANSI codes inserted
 pub fn apply_line_highlights(
@@ -343,6 +383,32 @@ pub fn apply_line_highlights(
     // Reset at end of line if style is still active
     if active_style.is_some() {
         result.push_str(color_scheme.reset);
+    }
+
+    result
+}
+
+/// Strip ANSI escape codes from a string
+/// This is useful for testing to verify content without color codes
+pub fn strip_ansi_codes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Skip ANSI escape sequence
+            // Format: ESC [ <params> <command>
+            if chars.next() == Some('[') {
+                // Skip until we find a letter (the command character)
+                for ch in chars.by_ref() {
+                    if ch.is_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
     }
 
     result
@@ -406,5 +472,33 @@ mod tests {
 
         // With plain color scheme, result should be identical to input
         assert_eq!(result, source);
+    }
+
+    #[test]
+    fn test_strip_ansi_codes() {
+        let input = "\x1b[36mconst\x1b[0m foo = \x1b[35m123\x1b[0m";
+        let result = strip_ansi_codes(input);
+        assert_eq!(result, "const foo = 123");
+    }
+
+    #[test]
+    fn test_strip_ansi_codes_preserves_plain_text() {
+        let input = "const foo = 123";
+        let result = strip_ansi_codes(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_adjust_highlights_for_truncation() {
+        let source = "const foo = 123";
+        let highlights = extract_highlights(source);
+
+        // Truncate to show only "foo = 123" (offset 6, length 9)
+        let adjusted = adjust_highlights_for_truncation(&highlights[0], 6, 9);
+
+        // Markers should be adjusted
+        assert!(!adjusted.markers.is_empty());
+        // There should be at least one start marker in the visible range
+        assert!(adjusted.markers.iter().any(|m| m.is_start));
     }
 }
