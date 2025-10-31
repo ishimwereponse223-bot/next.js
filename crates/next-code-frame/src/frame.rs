@@ -203,11 +203,7 @@ pub fn render_code_frame(
             let is_single_line_error = start_line == end_line;
 
             // Allow columns to go one past line length (pointing after last char)
-            let max_col = if line_content.len() > 0 {
-                line_content.len() + 1
-            } else {
-                1
-            };
+            let max_col = line_content.len() + 1;
 
             // Determine the column range to mark on this line:
             // Note: column positions are 1-indexed, ranges are [start, end) exclusive
@@ -233,19 +229,14 @@ pub fn render_code_frame(
             let reasonable_max = max_col + 1;
             let range_end = range_end.min(reasonable_max);
 
-            // If range is invalid (end <= start), show single marker at start
-            let (marker_col, marker_length) = if range_end > range_start {
-                // Calculate marker position accounting for truncation
-                let marker_col = if column_offset > 0 {
-                    if range_start > column_offset {
-                        range_start - column_offset + 1
-                    } else {
-                        1
-                    }
-                } else {
-                    range_start
-                };
+            // Calculate marker position accounting for truncation
+            // Adjust range_start by subtracting the truncation offset
+            let marker_col = range_start
+                .saturating_sub(column_offset.saturating_sub(1))
+                .max(1);
 
+            // If range is invalid (end <= start), show single marker at start
+            let marker_length = if range_end > range_start {
                 // Calculate visible span accounting for truncation
                 let visible_start = range_start.max(column_offset + 1);
                 let visible_end = range_end.min(column_offset + available_code_width);
@@ -256,22 +247,10 @@ pub fn render_code_frame(
                     1
                 };
 
-                (
-                    marker_col,
-                    span_length.min(available_code_width - (marker_col - 1)),
-                )
+                span_length.min(available_code_width - (marker_col - 1))
             } else {
-                // Invalid range, show single marker at start
-                let marker_col = if column_offset > 0 {
-                    if range_start > column_offset {
-                        range_start - column_offset + 1
-                    } else {
-                        1
-                    }
-                } else {
-                    range_start
-                };
-                (marker_col, 1)
+                // Invalid range, show single marker
+                1
             };
 
             output.push_str(color_scheme.reset);
