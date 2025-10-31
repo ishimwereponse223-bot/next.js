@@ -82,13 +82,14 @@ fn test_multiline_error() {
 
     let result = render_code_frame(source, &location, &options).unwrap();
 
-    // Multiline error shows markers on both first and last lines
-    // end_column 12 is allowed (one past the 11-char line)
+    // Multiline error shows spanning markers:
+    // - Line 2: from column 3 to end of line
+    // - Line 3: from start to end_column 12
     let expected = r#"  1 | function test() {
 > 2 |   console.log('hello')
-    |   ^
+    |   ^^^^^^^^^^^^^^^^^^^
 > 3 |   return 42
-    |            ^
+    | ^^^^^^^^^^^^
   4 | }
 "#;
     assert_eq!(result, expected);
@@ -113,12 +114,12 @@ fn test_multiline_error_with_message() {
     let result = render_code_frame(source, &location, &options).unwrap();
 
     // Message should only appear once, on the last error line's marker
-    // Note: end_column 12 is allowed (one past the 11-char line length)
+    // Spanning markers show the full error range
     let expected = r#"  1 | function test() {
 > 2 |   console.log('hello')
-    |   ^
+    |   ^^^^^^^^^^^^^^^^^^^
 > 3 |   return 42
-    |            ^ Unexpected expression
+    | ^^^^^^^^^^^^ Unexpected expression
   4 | }
 "#;
     assert_eq!(result, expected);
@@ -532,11 +533,12 @@ fn test_invalid_multiline_end_column_out_of_bounds() {
 
     let result = render_code_frame(source, &location, &options).unwrap();
 
-    // End column should clamp to line length of "short" (5)
+    // End column 50 clamps to 6 (one past "short" length of 5)
+    // Shows spanning markers for multiline error
     let expected = r#"> 1 | line1
-    |  ^
+    |  ^^^
 > 2 | short
-    |      ^
+    | ^^^^^^
   3 | line3
 "#;
     assert_eq!(result, expected);

@@ -241,28 +241,72 @@ pub fn render_code_frame(
                         };
                         (marker_col, 1)
                     }
-                } else {
-                    // Multiline error: show single marker at start or end column
+                } else if !is_single_line_error {
+                    // Multiline error: show spanning marker
+                    // - First line: from start_column to end of line
+                    // - Last line: from start to end_column
                     let max_col = if line_content.len() > 0 {
                         line_content.len() + 1
                     } else {
                         1
                     };
-                    let column_to_mark = if is_last_error_line {
-                        let col = location.end_column.unwrap_or(location.start_column);
-                        col.min(max_col)
+
+                    if line_idx == start_line {
+                        // First line: marker from start_column to end of visible line
+                        let start_col = location.start_column.min(max_col);
+                        let line_end = line_content.len().min(max_col);
+
+                        let marker_col = if column_offset > 0 {
+                            if start_col > column_offset {
+                                start_col - column_offset + 1
+                            } else {
+                                1
+                            }
+                        } else {
+                            start_col
+                        };
+
+                        // Calculate visible end accounting for truncation
+                        let visible_end = line_end.min(column_offset + available_code_width);
+                        let span_length = if visible_end > start_col {
+                            visible_end - start_col
+                        } else {
+                            1
+                        };
+
+                        (
+                            marker_col,
+                            span_length.min(available_code_width - (marker_col - 1)),
+                        )
+                    } else if is_last_error_line {
+                        // Last line: marker from 1 to end_column
+                        let end_col = location.end_column.unwrap_or(max_col).min(max_col);
+
+                        let marker_col = 1;
+                        let span_length = end_col;
+
+                        (marker_col, span_length.min(available_code_width))
                     } else {
-                        location.start_column.min(max_col)
+                        // Middle line - shouldn't happen due to should_show_marker logic
+                        (1, 1)
+                    }
+                } else {
+                    // Single-line error without end_column: show single marker
+                    let max_col = if line_content.len() > 0 {
+                        line_content.len() + 1
+                    } else {
+                        1
                     };
+                    let start_col = location.start_column.min(max_col);
 
                     let marker_col = if column_offset > 0 {
-                        if column_to_mark > column_offset {
-                            column_to_mark - column_offset + 1
+                        if start_col > column_offset {
+                            start_col - column_offset + 1
                         } else {
                             1
                         }
                     } else {
-                        column_to_mark
+                        start_col
                     };
 
                     (marker_col, 1)
