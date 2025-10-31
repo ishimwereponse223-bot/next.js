@@ -155,9 +155,13 @@ pub fn render_code_frame(
     }
 
     // Render each line
-    for line_idx in first_line..last_line {
+    for (line_idx, line_content) in lines
+        .into_iter()
+        .enumerate()
+        .take(last_line)
+        .skip(first_line)
+    {
         let line_num = line_idx + 1;
-        let line_content = lines[line_idx];
         let is_error_line = line_idx >= start_line && line_idx <= end_line;
 
         // Apply consistent truncation to all lines in the window

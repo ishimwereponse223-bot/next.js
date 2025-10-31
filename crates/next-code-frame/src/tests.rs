@@ -426,7 +426,7 @@ Another paragraph.
         ..Default::default()
     };
 
-    let result = render_code_frame(&source, &location, &options).unwrap();
+    let result = render_code_frame(source, &location, &options).unwrap();
 
     let expected = r#"  1 | # Title
   2 |
