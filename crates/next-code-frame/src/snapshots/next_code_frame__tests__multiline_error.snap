@@ -1,0 +1,10 @@
+---
+source: crates/next-code-frame/src/tests.rs
+expression: result
+---
+  1 | function test() {
+> 2 |   console.log('hello')
+    |   ^^^^^^^^^^^^^^^^^^^
+> 3 |   return 42
+    | ^^^^^^^^^^^
+  4 | }

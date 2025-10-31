@@ -1,0 +1,6 @@
+---
+source: crates/next-code-frame/src/tests.rs
+expression: result
+---
+> 1 | const x = 123;
+    |           ^

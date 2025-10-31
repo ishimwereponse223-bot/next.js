@@ -1,3 +1,5 @@
+use insta::assert_snapshot;
+
 use crate::{CodeFrameLocation, CodeFrameOptions, Location, render_code_frame};
 
 #[test]
@@ -14,11 +16,7 @@ fn test_simple_single_line_error() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    let expected = r#"> 1 | console.log('hello')
-    | ^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -35,9 +33,7 @@ fn test_empty_source() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    let expected = "";
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -57,9 +53,7 @@ fn test_invalid_line_number() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    let expected = "";
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -79,18 +73,7 @@ fn test_multiline_error() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    // Multiline error shows spanning markers:
-    // - Line 2: from column 3 to end of line
-    // - Line 3: from start to end_column 12 (exclusive, so marks columns 1-11)
-    let expected = r#"  1 | function test() {
-> 2 |   console.log('hello')
-    |   ^^^^^^^^^^^^^^^^^^^
-> 3 |   return 42
-    | ^^^^^^^^^^^
-  4 | }
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -111,18 +94,7 @@ fn test_multiline_error_with_message() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    // Message should only appear once, on the last error line's marker
-    // Spanning markers show the full error range
-    // end_column: 12 (exclusive) marks columns 1-11
-    let expected = r#"  1 | function test() {
-> 2 |   console.log('hello')
-    |   ^^^^^^^^^^^^^^^^^^^
-> 3 |   return 42
-    | ^^^^^^^^^^^ Unexpected expression
-  4 | }
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -140,11 +112,7 @@ fn test_with_message() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    let expected = r#"> 1 | const x = 1
-    |       ^ Expected semicolon
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -168,15 +136,7 @@ fn test_long_line_single_error() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-
-    // All lines should be truncated at the same offset (centered on error)
-    // Short lines are completely scrolled out and show only "..."
-    let expected = r#"  1 | ...
-> 2 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
-    |                                              ^
-  3 | ...
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -197,13 +157,7 @@ fn test_long_line_at_start() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-
-    // Should only have ellipsis at the end
-    // Error is at column 5, so marker should be at position 5 (4 spaces)
-    let expected = r#"> 1 | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
-    |     ^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -227,13 +181,7 @@ fn test_long_line_at_end() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-
-    // Should only have ellipsis at the start
-    // The marker position needs to account for the truncation offset
-    let expected = r#"> 1 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    |                                              ^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -261,14 +209,7 @@ fn test_long_line_multiline_aligned() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-
-    // All lines truncated at same position
-    let expected = r#"  1 | ...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...
-> 2 | ...cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...
-    |                                              ^
-  3 | ...dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd...
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -287,15 +228,7 @@ fn test_context_lines() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    let expected = r#"  2 | line 2
-  3 | line 3
-> 4 | line 4
-    | ^
-  5 | line 5
-  6 | line 6
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -320,14 +253,7 @@ fn test_gutter_width_alignment() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-
-    let expected = r#"   97 | line 97
-   98 | line 98
->  99 | line 99
-      | ^
-  100 | line 100
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -355,18 +281,7 @@ fn test_large_file() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-
-    let expected = format!(
-        r#"  24998 | line 24998 {}
-  24999 | line 24999 {}
-> 25000 | line 25000 {}
-        | ^
-  25001 | line 25001 {}
-  25002 | line 25002 {}
-"#,
-        line, line, line, line, line
-    );
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -393,14 +308,7 @@ fn test_long_error_span() {
     };
 
     let result = render_code_frame(&source, &location, &options).unwrap();
-
-    // The span is 300 chars but we can only show ~87 chars
-    // The code is centered on the span, so the marker shows the visible portion
-    // Marker starts at position relative to the visible content
-    let expected = r#"> 1 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
-    |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -431,16 +339,7 @@ Another paragraph.
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    let expected = r#"  1 | # Title
-  2 |
-> 3 | This is a paragraph with some **bold** text.
-    |                         ^
-  4 |
-  5 | ```javascript
-  6 | const x = 1;
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -461,12 +360,7 @@ fn test_invalid_column_start_out_of_bounds() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    // Should clamp to end of line (column 5)
-    let expected = r#"> 1 | short
-    |      ^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -487,12 +381,7 @@ fn test_invalid_column_end_before_start() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    // Should show single marker at start column (no span)
-    let expected = r#"> 1 | const x = 123;
-    |           ^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result);
 }
 
 #[test]
@@ -516,13 +405,7 @@ fn test_invalid_column_both_out_of_bounds() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    // Both should clamp to line length (3)
-    // Since they're equal after clamping, shows single marker
-    let expected = r#"> 1 | abc
-    |    ^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result,@"");
 }
 
 #[test]
@@ -543,16 +426,7 @@ fn test_invalid_multiline_end_column_out_of_bounds() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    // End column 50 clamps to 6 (one past "short" length of 5)
-    // Shows spanning markers for multiline error
-    let expected = r#"> 1 | line1
-    |  ^^^
-> 2 | short
-    | ^^^^^^
-  3 | line3
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!(result, @"");
 }
 
 #[test]
@@ -579,12 +453,7 @@ fn test_column_semantics_explicit_end() {
     };
 
     let result = render_code_frame(source, &location, &options).unwrap();
-
-    // With exclusive end_column=12, this marks only column 11
-    let expected = r#"> 1 | const x = 123;
-    |           ^
-"#;
-    assert_eq!(result, expected);
+    assert_snapshot!("single_char", result);
 
     // Test 2: Mark "123" which spans columns 11-13 (1-indexed)
     // With EXCLUSIVE semantics: end_column should be 14 to mark columns 11-13
@@ -600,10 +469,5 @@ fn test_column_semantics_explicit_end() {
     };
 
     let result2 = render_code_frame(source, &location2, &options).unwrap();
-
-    // With exclusive end_column=14, this marks columns 11-13 = "123"
-    let expected2 = r#"> 1 | const x = 123;
-    |           ^^^
-"#;
-    assert_eq!(result2, expected2);
+    assert_snapshot!("three_chars", result2);
 }

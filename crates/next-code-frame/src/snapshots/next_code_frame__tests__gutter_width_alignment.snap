@@ -1,0 +1,9 @@
+---
+source: crates/next-code-frame/src/tests.rs
+expression: result
+---
+   97 | line 97
+   98 | line 98
+>  99 | line 99
+      | ^
+  100 | line 100

@@ -11,6 +11,10 @@ bench = false
 [lints]
 workspace = true
 
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3
+
 [dependencies]
 anyhow = { workspace = true }
 swc_core = { workspace = true, features = [
@@ -19,3 +23,6 @@ swc_core = { workspace = true, features = [
     "ecma_parser",
     "ecma_parser_typescript",
 ] }
+
+[dev-dependencies]
+insta = { version = "1.43.1", features = ["yaml"] }
