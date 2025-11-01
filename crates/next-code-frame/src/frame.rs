@@ -178,13 +178,6 @@ pub fn render_code_frame(
         return Ok(String::new());
     }
 
-    // Extract syntax highlights if enabled
-    let line_highlights: Vec<LineHighlight> = if options.highlight_code {
-        extract_highlights(source)
-    } else {
-        Vec::new()
-    };
-
     // Split source into lines
     let lines: Vec<&str> = source.lines().collect();
 
@@ -225,6 +218,14 @@ pub fn render_code_frame(
     // Calculate window of lines to show
     let first_line = start_line.saturating_sub(options.lines_above);
     let last_line = (end_line + options.lines_below + 1).min(lines.len());
+
+    // Extract syntax highlights if enabled, only for the visible line range
+    // first_line and last_line are already 0-indexed, perfect for the API
+    let line_highlights: Vec<LineHighlight> = if options.highlight_code {
+        extract_highlights(source, first_line..last_line)
+    } else {
+        Vec::new()
+    };
 
     // Calculate gutter width (space needed for line numbers)
     let max_line_num = last_line;
@@ -281,10 +282,12 @@ pub fn render_code_frame(
             apply_line_truncation(line_content, truncation_offset, available_code_width);
 
         // Apply syntax highlighting if enabled
-        let visible_content = if options.highlight_code && line_idx < line_highlights.len() {
+        // line_highlights is indexed relative to first_line (0-indexed within the visible range)
+        let highlight_idx = line_idx.saturating_sub(first_line);
+        let visible_content = if options.highlight_code && highlight_idx < line_highlights.len() {
             // Adjust highlights for truncation
             let adjusted_highlight = adjust_highlights_for_truncation(
-                &line_highlights[line_idx],
+                &line_highlights[highlight_idx],
                 truncation_offset,
                 visible_content.len(),
             );

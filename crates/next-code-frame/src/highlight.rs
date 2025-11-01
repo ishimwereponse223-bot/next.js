@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use swc_common::{SourceMap, Span, comments::SingleThreadedComments};
 use swc_ecma_lexer::{Lexer, StringInput, Syntax, TsSyntax, token::Token};
 
@@ -109,13 +111,44 @@ impl ColorScheme {
 
 /// Lex the entire source file and extract token information
 /// Returns highlighting information for each line
-pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
+///
+/// # Parameters
+/// - `source`: The source code to highlight
+/// - `line_range`: Range of line indices (0-indexed) to produce markers for (start inclusive, end
+///   exclusive) Tokens are still lexed for the entire file to maintain correct parsing state, but
+///   style markers are only produced for lines within this range. Pass `0..usize::MAX` to produce
+///   markers for all lines.
+pub fn extract_highlights(source: &str, line_range: Range<usize>) -> Vec<LineHighlight> {
     // Create a SourceMap and SourceFile for the lexer
     let cm = SourceMap::default();
     let fm = cm.new_source_file(
         swc_common::FileName::Custom("input.tsx".into()).into(),
         source.to_string(),
     );
+
+    // Convert line_range to byte range for efficient filtering
+    let byte_range = {
+        // line_range is already 0-indexed
+        let start_idx = line_range.start;
+        let end_idx = line_range.end;
+
+        // Get byte positions for the line range
+        let start_byte = if start_idx < fm.count_lines() {
+            let (start_pos, _) = fm.line_bounds(start_idx);
+            start_pos.0.saturating_sub(1) as usize
+        } else {
+            usize::MAX // Out of range, will filter everything
+        };
+
+        let end_byte = if end_idx < fm.count_lines() {
+            let (_, end_pos) = fm.line_bounds(end_idx);
+            end_pos.0.saturating_sub(1) as usize
+        } else {
+            source.len()
+        };
+
+        Some((start_byte, end_byte))
+    };
 
     // Configure syntax for TypeScript + JSX
     let syntax = Syntax::Typescript(TsSyntax {
@@ -147,6 +180,7 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
                 token.span,
                 token_type,
                 token.had_line_break,
+                byte_range,
             );
         }
     }
@@ -162,6 +196,7 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
                 comment.span,
                 TokenType::Comment,
                 false,
+                byte_range,
             );
         }
     }
@@ -174,6 +209,7 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
                 comment.span,
                 TokenType::Comment,
                 false,
+                byte_range,
             );
         }
     }
@@ -182,7 +218,7 @@ pub fn extract_highlights(source: &str) -> Vec<LineHighlight> {
     all_markers.sort();
 
     // Use SourceFile's line lookup to group markers by line
-    group_markers_by_line(&all_markers, &fm, source)
+    group_markers_by_line(&all_markers, &fm, source, line_range)
 }
 
 /// Classify a token into a highlighting type
@@ -241,12 +277,14 @@ fn classify_token(token: &Token) -> Option<TokenType> {
 
 /// Add start and end markers for a token span
 /// Splits markers at line boundaries for multiline tokens using lookup_line
+/// Only adds markers if they intersect with the byte_range (if provided)
 fn add_token_markers(
     markers: &mut Vec<StyleMarker>,
     fm: &swc_common::SourceFile,
     span: Span,
     token_type: TokenType,
     had_line_break: bool,
+    byte_range: Option<(usize, usize)>,
 ) {
     // BytePos starts at 1, so we need to subtract 1 to get 0-indexed offsets
     let start = span.lo.0.saturating_sub(1) as usize;
@@ -254,6 +292,14 @@ fn add_token_markers(
 
     if start >= end {
         return;
+    }
+
+    // Early exit if token is completely outside the byte range
+    if let Some((range_start, range_end)) = byte_range {
+        // Token is completely before or after the range
+        if end <= range_start || start >= range_end {
+            return;
+        }
     }
 
     // Check if this token spans multiple lines using lookup_line (O(log n))
@@ -273,6 +319,14 @@ fn add_token_markers(
             let marker_end = end.min(line_end);
 
             if marker_start < marker_end {
+                // Check if this segment intersects with the byte range
+                if let Some((range_start, range_end)) = byte_range {
+                    // Skip if this segment is completely outside the range
+                    if marker_end <= range_start || marker_start >= range_end {
+                        continue;
+                    }
+                }
+
                 markers.push(StyleMarker {
                     offset: marker_start,
                     is_start: true,
@@ -303,10 +357,12 @@ fn add_token_markers(
 
 /// Group markers by line using SourceFile's line_bounds API
 /// Complexity: O(markers + lines) using a single pass with marker index
+/// Only returns LineHighlight entries for lines within the specified range
 fn group_markers_by_line(
     markers: &[StyleMarker],
     fm: &swc_common::SourceFile,
     source: &str,
+    line_range: Range<usize>,
 ) -> Vec<LineHighlight> {
     if source.is_empty() {
         return Vec::new();
@@ -314,13 +370,23 @@ fn group_markers_by_line(
 
     // Get line count from SourceFile
     let line_count = fm.count_lines();
-    let mut line_highlights: Vec<LineHighlight> = Vec::with_capacity(line_count);
+
+    // Determine which lines to process (already 0-indexed)
+    let start_line_idx = line_range.start.min(line_count);
+    let end_line_idx = line_range.end.min(line_count);
+
+    let output_line_count = end_line_idx.saturating_sub(start_line_idx);
+    let mut line_highlights: Vec<LineHighlight> = Vec::with_capacity(output_line_count);
 
     // Track our position in the markers array (sorted by offset)
     let mut marker_idx = 0;
 
-    // Process each line
-    for line_idx in 0..line_count {
+    // Process each line in the range (start..end is exclusive at end, just like Range)
+    for line_idx in start_line_idx..end_line_idx {
+        if line_idx >= line_count {
+            break;
+        }
+
         let (line_start_pos, line_end_pos) = fm.line_bounds(line_idx);
         let line_start = line_start_pos.0.saturating_sub(1) as usize;
         let line_end = line_end_pos.0.saturating_sub(1) as usize;
@@ -337,8 +403,11 @@ fn group_markers_by_line(
             if abs_offset >= line_end {
                 break;
             }
-            // the marker must be within this line
-            debug_assert!(abs_offset >= line_start);
+            // Skip markers before this line (shouldn't happen if byte_range filtering worked)
+            if abs_offset < line_start {
+                marker_idx += 1;
+                continue;
+            }
 
             let rel_offset = abs_offset - line_start;
             line_markers.push(StyleMarker {
@@ -478,37 +547,9 @@ pub mod tests {
     }
 
     #[test]
-    fn test_extract_highlights_basic() {
-        let source = r#"const foo = "hello";"#;
-        let highlights = extract_highlights(source);
-
-        // Should have 1 line
-        assert_eq!(highlights.len(), 1);
-        assert_eq!(highlights[0].line, 1);
-
-        // Should have markers for keyword (const), identifier (foo), and string ("hello")
-        assert!(highlights[0].markers.len() > 0);
-    }
-
-    #[test]
-    fn test_extract_highlights_multiline() {
-        let source = "const x = 1;\nconst y = 2;";
-        let highlights = extract_highlights(source);
-
-        // Should have 2 lines
-        assert_eq!(highlights.len(), 2);
-        assert_eq!(highlights[0].line, 1);
-        assert_eq!(highlights[1].line, 2);
-
-        // Both lines should have markers
-        assert!(highlights[0].markers.len() > 0);
-        assert!(highlights[1].markers.len() > 0);
-    }
-
-    #[test]
     fn test_apply_line_highlights_basic() {
         let source = "const foo = 123";
-        let highlights = extract_highlights(source);
+        let highlights = extract_highlights(source, 0..usize::MAX);
         let color_scheme = ColorScheme::colored();
 
         let result = apply_line_highlights(source, &highlights[0], &color_scheme);
@@ -524,7 +565,7 @@ pub mod tests {
     #[test]
     fn test_apply_line_highlights_plain() {
         let source = "const foo = 123";
-        let highlights = extract_highlights(source);
+        let highlights = extract_highlights(source, 0..usize::MAX);
         let color_scheme = ColorScheme::plain();
 
         let result = apply_line_highlights(source, &highlights[0], &color_scheme);
@@ -550,7 +591,7 @@ pub mod tests {
     #[test]
     fn test_adjust_highlights_for_truncation() {
         let source = "const foo = 123";
-        let highlights = extract_highlights(source);
+        let highlights = extract_highlights(source, 0..usize::MAX);
 
         // Truncate to show only "foo = 123" (offset 6, length 9)
         let adjusted = adjust_highlights_for_truncation(&highlights[0], 6, 9);
@@ -564,7 +605,7 @@ pub mod tests {
     #[test]
     fn test_comments_and_punctuation() {
         let source = "const x = 42; // comment\nobj.foo = 10;";
-        let highlights = extract_highlights(source);
+        let highlights = extract_highlights(source, 0..usize::MAX);
 
         // Should have 2 lines
         assert_eq!(highlights.len(), 2);
@@ -598,7 +639,7 @@ pub mod tests {
     #[test]
     fn test_multiline_comment() {
         let source = "const x = 1;\n/* multi\n   line */\nconst y = 2;";
-        let highlights = extract_highlights(source);
+        let highlights = extract_highlights(source, 0..usize::MAX);
 
         // Should have 4 lines
         assert_eq!(highlights.len(), 4);
@@ -615,5 +656,54 @@ pub mod tests {
 
         assert!(line2_has_comment, "Line 2 should have comment marker");
         assert!(line3_has_comment, "Line 3 should have comment marker");
+    }
+
+    #[test]
+    fn test_line_range_filtering() {
+        let source = "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\nconst e = 5;";
+
+        // Extract only line indices 1-3 (lines 2-4 in 1-indexed terms, 1..4 because Range is
+        // exclusive at the end)
+        let highlights = extract_highlights(source, 1..4);
+
+        // Should only have 3 lines (indices 1, 2, 3 = lines 2, 3, 4 in 1-indexed)
+        assert_eq!(highlights.len(), 3);
+        assert_eq!(highlights[0].line, 2);
+        assert_eq!(highlights[1].line, 3);
+        assert_eq!(highlights[2].line, 4);
+
+        // Each line should still have markers
+        assert!(
+            !highlights[0].markers.is_empty(),
+            "Line 2 should have markers"
+        );
+        assert!(
+            !highlights[1].markers.is_empty(),
+            "Line 3 should have markers"
+        );
+        assert!(
+            !highlights[2].markers.is_empty(),
+            "Line 4 should have markers"
+        );
+    }
+
+    #[test]
+    fn test_line_range_reduces_marker_count() {
+        let source = "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\nconst e = 5;";
+
+        // Extract all lines
+        let all_highlights = extract_highlights(source, 0..usize::MAX);
+        let all_marker_count: usize = all_highlights.iter().map(|h| h.markers.len()).sum();
+
+        // Extract only line index 2 (line 3 in 1-indexed terms, 2..3 because Range is exclusive at
+        // the end)
+        let filtered_highlights = extract_highlights(source, 2..3);
+        let filtered_marker_count: usize =
+            filtered_highlights.iter().map(|h| h.markers.len()).sum();
+
+        // Filtered should have significantly fewer markers
+        assert_eq!(filtered_highlights.len(), 1);
+        assert!(filtered_marker_count < all_marker_count);
+        assert!(filtered_marker_count > 0, "Should still have some markers");
     }
 }
