@@ -1,4 +1,4 @@
-import { codeFrameColumns } from 'next/dist/compiled/babel/code-frame'
+import { codeFrameColumns } from '../../shared/lib/errors/code-frame'
 import isInternal from '../../shared/lib/is-internal'
 import type { StackFrame } from '../../server/lib/parse-stack'
 import { ignoreListAnonymousStackFramesIfSandwiched as ignoreListAnonymousStackFramesIfSandwichedGeneric } from '../../server/lib/source-maps'
@@ -67,12 +67,12 @@ export function getOriginalCodeFrame(
   frame: IgnorableStackFrame,
   source: string | null,
   colors: boolean = process.stdout.isTTY
-): string | null {
+): Promise<string | null> {
   if (!source || isInternal(frame.file)) {
     return null
   }
 
-  return codeFrameColumns(
+  return await codeFrameColumns(
     source,
     {
       start: {

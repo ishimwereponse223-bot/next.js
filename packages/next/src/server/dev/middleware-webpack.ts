@@ -256,7 +256,7 @@ export async function createOriginalStackFrame({
 
   return {
     originalStackFrame: traced,
-    originalCodeFrame: getOriginalCodeFrame(traced, sourceContent),
+    originalCodeFrame: await getOriginalCodeFrame(traced, sourceContent),
   }
 }
 
