@@ -91,7 +91,7 @@ export function processIssues(
   }
 }
 
-export function formatIssue(issue: Issue) {
+export async function formatIssue(issue: Issue) {
   const { filePath, title, description, source, importTraces } = issue
   let { documentationLink } = issue
   const formattedTitle = renderStyledStringToErrorAnsi(title).replace(
@@ -134,19 +134,22 @@ export function formatIssue(issue: Issue) {
   ) {
     const { start, end } = source.range
 
-    const codeFrame = codeFrameColumns(
-      source.source.content,
-      {
-        start: {
-          line: start.line + 1,
-          column: start.column + 1,
+    // TODO(luke.sandberg): move codeFrame formatting into turbopack to avoid being async here.
+    const codeFrame = (
+      await codeFrameColumns(
+        source.source.content,
+        {
+          start: {
+            line: start.line + 1,
+            column: start.column + 1,
+          },
+          end: {
+            line: end.line + 1,
+            column: end.column + 1,
+          },
         },
-        end: {
-          line: end.line + 1,
-          column: end.column + 1,
-        },
-      },
-      { forceColor: true }
+        { forceColor: true }
+      )
     ).trim()
     if (codeFrame) {
       message += codeFrame + '\n\n'

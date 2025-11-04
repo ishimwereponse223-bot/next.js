@@ -19,6 +19,7 @@ similar.opt-level = 3
 anyhow = { workspace = true }
 swc_ecma_lexer = "24.0.0"
 swc_common = "15.0.0"
+serde = { workspace = true }
 
 [dev-dependencies]
 insta = { version = "1.43.1", features = ["yaml"] }

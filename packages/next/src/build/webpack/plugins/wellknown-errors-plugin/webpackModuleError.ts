@@ -89,7 +89,7 @@ export async function getModuleBuildError(
     return css
   }
 
-  const scss = getScssError(sourceFilename, sourceContent, err)
+  const scss = await getScssError(sourceFilename, sourceContent, err)
   if (scss !== false) {
     return scss
   }

@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use serde::Deserialize;
 
 use crate::{
     highlight::{
@@ -9,7 +10,7 @@ use crate::{
 };
 
 /// A source location with line and column
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Location {
     /// 1-indexed line number
     pub line: usize,
@@ -33,7 +34,7 @@ pub struct Location {
 ///     end: Some(Location { line: 1, column: 14 }),  // Exclusive
 /// }
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct CodeFrameLocation {
     /// Starting location
     pub start: Location,
@@ -43,7 +44,7 @@ pub struct CodeFrameLocation {
 }
 
 /// Options for rendering the code frame
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CodeFrameOptions {
     /// Number of lines to show before the error
     pub lines_above: usize,

@@ -4319,6 +4319,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "insta",
+ "serde",
  "swc_common",
  "swc_ecma_lexer",
 ]
@@ -10602,6 +10603,7 @@ dependencies = [
  "getrandom 0.3.3",
  "js-sys",
  "mdxjs",
+ "next-code-frame",
  "next-custom-transforms",
  "next-taskless",
  "rustc-hash 2.1.1",

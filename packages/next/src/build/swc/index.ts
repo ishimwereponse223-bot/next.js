@@ -21,6 +21,8 @@ import type {
   NapiPartialProjectOptions,
   NapiProjectOptions,
   NapiSourceDiagnostic,
+  NapiCodeFrameLocation,
+  NapiCodeFrameOptions,
 } from './generated-native'
 import type {
   Binding,
@@ -1296,6 +1298,17 @@ async function loadWasm(importPath = '') {
         imports
       )
     },
+    codeFrameColumns(
+      source: string,
+      location: NapiCodeFrameLocation,
+      options?: NapiCodeFrameOptions
+    ): string {
+      return rawBindings.codeFrameColumns(
+        Buffer.from(source),
+        location,
+        options
+      )
+    },
     lockfileTryAcquire(_filePath: string) {
       throw new Error(
         '`lockfileTryAcquire` is not supported by the wasm bindings.'
@@ -1528,6 +1541,7 @@ function loadNative(importPath?: string) {
       lockfileUnlockSync(lockfile: Lockfile) {
         return bindings.lockfileUnlockSync(lockfile)
       },
+      codeFrameColumns: bindings.codeFrameColumns,
     }
     return loadedBindings
   }
@@ -1641,4 +1655,13 @@ export async function warnForEdgeRuntime(
   isProduction: boolean
 ): Promise<NapiSourceDiagnostic[]> {
   return getBindingsSync().rspack.warnForEdgeRuntime(source, isProduction)
+}
+
+export async function codeFrameColumns(
+  source: string,
+  location: NapiCodeFrameLocation,
+  options?: NapiCodeFrameOptions
+): Promise<string> {
+  const bindings = await loadBindings()
+  return bindings.codeFrameColumns(source, location, options)
 }

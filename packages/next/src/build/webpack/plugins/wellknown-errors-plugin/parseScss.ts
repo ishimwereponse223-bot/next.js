@@ -5,11 +5,11 @@ import { codeFrameColumns } from '../../../../shared/lib/errors/code-frame'
 const regexScssError =
   /SassError: (.+)\n\s+on line (\d+) [\s\S]*?>> (.+)\n\s*(-+)\^$/m
 
-export function getScssError(
+export async function getScssError(
   fileName: string,
   fileContent: string | null,
   err: Error
-): SimpleWebpackError | false {
+): Promise<SimpleWebpackError | false> {
   if (err.name !== 'SassError') {
     return false
   }
@@ -23,11 +23,11 @@ export function getScssError(
     let frame: string | undefined
     if (fileContent) {
       try {
-        frame = codeFrameColumns(
+        frame = (await codeFrameColumns(
           fileContent,
           { start: { line: lineNumber, column } },
           { forceColor: true }
-        ) as string
+        )) as string
       } catch {}
     }
 

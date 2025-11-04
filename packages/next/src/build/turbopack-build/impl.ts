@@ -106,7 +106,7 @@ export async function turbopackBuild(): Promise<{
 
     let appDirOnly = NextBuildContext.appDirOnly!
     const entrypoints = await project.writeAllEntrypointsToDisk(appDirOnly)
-    printBuildErrors(entrypoints, dev)
+    await printBuildErrors(entrypoints, dev)
 
     let routes = entrypoints.routes
     if (!routes) {

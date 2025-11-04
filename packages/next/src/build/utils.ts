@@ -184,16 +184,18 @@ export function collectRoutesUsingEdgeRuntime(
  * Processes and categorizes build issues, then logs them as warnings, errors, or fatal errors.
  * Stops execution if fatal issues are encountered.
  *
+ * TODO(luke.sandberg): move codeframe formatting into turbopack so this doesn't need to be async
+ *
  * @param entrypoints - The result object containing build issues to process.
  * @param isDev - A flag indicating if the build is running in development mode.
  * @return This function does not return a value but logs or throws errors based on the issues.
  * @throws {Error} If a fatal issue is encountered, this function throws an error. In development mode, we only throw on
  *                 'fatal' and 'bug' issues. In production mode, we also throw on 'error' issues.
  */
-export function printBuildErrors(
+export async function printBuildErrors(
   entrypoints: TurbopackResult,
   isDev: boolean
-): void {
+): Promise<void> {
   // Issues that we want to stop the server from executing
   const topLevelFatalIssues = []
   // Issues that are true errors, but we believe we can keep running and allow the user to address the issue
@@ -209,19 +211,19 @@ export function printBuildErrors(
   for (const issue of entrypoints.issues) {
     // We only want to completely shut down the server
     if (issue.severity === 'fatal' || issue.severity === 'bug') {
-      const formatted = formatIssue(issue)
+      const formatted = await formatIssue(issue)
       if (!seenFatalIssues.has(formatted)) {
         seenFatalIssues.add(formatted)
         topLevelFatalIssues.push(formatted)
       }
     } else if (isRelevantWarning(issue)) {
-      const formatted = formatIssue(issue)
+      const formatted = await formatIssue(issue)
       if (!seenWarnings.has(formatted)) {
         seenWarnings.add(formatted)
         topLevelWarnings.push(formatted)
       }
     } else if (issue.severity === 'error') {
-      const formatted = formatIssue(issue)
+      const formatted = await formatIssue(issue)
       if (isDev) {
         // We want to treat errors as recoverable in development
         // so that we can show the errors in the site and allow users

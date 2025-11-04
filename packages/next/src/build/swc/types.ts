@@ -5,6 +5,8 @@ import type {
   RefCell,
   NapiTurboEngineOptions,
   NapiSourceDiagnostic,
+  NapiCodeFrameOptions,
+  NapiCodeFrameLocation,
 } from './generated-native'
 
 export type { NapiTurboEngineOptions as TurboEngineOptions }
@@ -70,6 +72,11 @@ export interface Binding {
   lockfileTryAcquireSync(path: string): Lockfile | null
   lockfileUnlock(lockfile: Lockfile): Promise<void>
   lockfileUnlockSync(lockfile: Lockfile): void
+  codeFrameColumns(
+    source: string,
+    location: NapiCodeFrameLocation,
+    options?: NapiCodeFrameOptions
+  ): string
 }
 
 export type StyledString =
@@ -123,6 +130,7 @@ export interface Issue {
   }
   documentationLink: string
   importTraces?: PlainTraceItem[][]
+  codeFrame?: string
 }
 export interface PlainTraceItem {
   fsName: string

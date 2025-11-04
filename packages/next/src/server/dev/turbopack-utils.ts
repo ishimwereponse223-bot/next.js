@@ -68,9 +68,9 @@ function shouldEmitOnceWarning(issue: Issue): boolean {
 
 /// Print out an issue to the console which should not block
 /// the build by throwing out or blocking error overlay.
-export function printNonFatalIssue(issue: Issue) {
+export async function printNonFatalIssue(issue: Issue) {
   if (isRelevantWarning(issue) && shouldEmitOnceWarning(issue)) {
-    Log.warn(formatIssue(issue))
+    Log.warn(await formatIssue(issue))
   }
 }
 

@@ -2,13 +2,13 @@ use napi::bindgen_prelude::*;
 use next_code_frame::{CodeFrameLocation, CodeFrameOptions, Location, render_code_frame};
 
 #[napi(object)]
-pub struct SourceLocation {
+pub struct NapiLocation {
     pub line: u32,
     pub column: Option<u32>,
 }
 
-impl From<SourceLocation> for Location {
-    fn from(loc: SourceLocation) -> Self {
+impl From<NapiLocation> for Location {
+    fn from(loc: NapiLocation) -> Self {
         Location {
             line: loc.line as usize,
             column: loc.column.unwrap_or(0) as usize,
@@ -17,13 +17,13 @@ impl From<SourceLocation> for Location {
 }
 
 #[napi(object)]
-pub struct BabelSourceLocation {
-    pub start: SourceLocation,
-    pub end: Option<SourceLocation>,
+pub struct NapiCodeFrameLocation {
+    pub start: NapiLocation,
+    pub end: Option<NapiLocation>,
 }
 
-impl From<BabelSourceLocation> for CodeFrameLocation {
-    fn from(loc: BabelSourceLocation) -> Self {
+impl From<NapiCodeFrameLocation> for CodeFrameLocation {
+    fn from(loc: NapiCodeFrameLocation) -> Self {
         CodeFrameLocation {
             start: loc.start.into(),
             end: loc.end.map(Into::into),
@@ -33,7 +33,7 @@ impl From<BabelSourceLocation> for CodeFrameLocation {
 
 #[napi(object)]
 #[derive(Default)]
-pub struct CodeFrameOptionsJs {
+pub struct NapiCodeFrameOptions {
     /// Number of lines to show above the error (default: 2)
     pub lines_above: Option<u32>,
     /// Number of lines to show below the error (default: 3)
@@ -48,8 +48,8 @@ pub struct CodeFrameOptionsJs {
     pub message: Option<String>,
 }
 
-impl From<CodeFrameOptionsJs> for CodeFrameOptions {
-    fn from(opts: CodeFrameOptionsJs) -> Self {
+impl From<NapiCodeFrameOptions> for CodeFrameOptions {
+    fn from(opts: NapiCodeFrameOptions) -> Self {
         CodeFrameOptions {
             lines_above: opts.lines_above.unwrap_or(2) as usize,
             lines_below: opts.lines_below.unwrap_or(3) as usize,
@@ -78,8 +78,8 @@ impl From<CodeFrameOptionsJs> for CodeFrameOptions {
 #[napi]
 pub fn code_frame_columns(
     source: String,
-    location: BabelSourceLocation,
-    options: Option<CodeFrameOptionsJs>,
+    location: NapiCodeFrameLocation,
+    options: Option<NapiCodeFrameOptions>,
 ) -> Result<String> {
     let code_frame_location: CodeFrameLocation = location.into();
     let code_frame_options: CodeFrameOptions = options.unwrap_or_default().into();
