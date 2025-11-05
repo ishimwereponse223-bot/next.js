@@ -76,7 +76,8 @@ export class ExportError extends Error {
 async function exportAppImpl(
   dir: string,
   options: Readonly<ExportAppOptions>,
-  span: Span
+  span: Span,
+  staticWorker?: StaticWorker
 ): Promise<ExportAppResult | null> {
   dir = resolve(dir)
 
@@ -645,13 +646,15 @@ async function exportAppImpl(
         `Exporting using ${options.numWorkers} worker${options.numWorkers > 1 ? 's' : ''}`
     )
 
-    worker = createStaticWorker(nextConfig, {
-      debuggerPortOffset: getNextBuildDebuggerPortOffset({
-        kind: 'export-page',
-      }),
-      numberOfWorkers: options.numWorkers,
-      progress,
-    })
+    worker =
+      staticWorker ??
+      createStaticWorker(nextConfig, {
+        debuggerPortOffset: getNextBuildDebuggerPortOffset({
+          kind: 'export-page',
+        }),
+        numberOfWorkers: options.numWorkers,
+        progress,
+      })
 
     results = await exportPagesInBatches(worker, initialPhaseExportPaths)
 
@@ -913,7 +916,7 @@ async function exportAppImpl(
     await telemetry.flush()
   }
 
-  if (worker) {
+  if (!staticWorker && worker) {
     await worker.end()
   }
 
@@ -957,11 +960,12 @@ async function collectSegmentPathsImpl(
 export default async function exportApp(
   dir: string,
   options: ExportAppOptions,
-  span: Span
+  span: Span,
+  staticWorker?: StaticWorker
 ): Promise<ExportAppResult | null> {
   const nextExportSpan = span.traceChild('next-export')
 
   return nextExportSpan.traceAsyncFn(async () => {
-    return await exportAppImpl(dir, options, nextExportSpan)
+    return await exportAppImpl(dir, options, nextExportSpan, staticWorker)
   })
 }
