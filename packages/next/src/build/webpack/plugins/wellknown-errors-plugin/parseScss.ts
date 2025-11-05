@@ -1,15 +1,15 @@
 import { bold, cyan, red, yellow } from '../../../../lib/picocolors'
 import { SimpleWebpackError } from './simpleWebpackError'
 
-import { codeFrameColumns } from '../../../../shared/lib/errors/code-frame'
+import { renderCodeFrame } from '../../../../shared/lib/errors/code-frame'
 const regexScssError =
   /SassError: (.+)\n\s+on line (\d+) [\s\S]*?>> (.+)\n\s*(-+)\^$/m
 
-export async function getScssError(
+export function getScssError(
   fileName: string,
   fileContent: string | null,
   err: Error
-): Promise<SimpleWebpackError | false> {
+): SimpleWebpackError | false {
   if (err.name !== 'SassError') {
     return false
   }
@@ -23,11 +23,11 @@ export async function getScssError(
     let frame: string | undefined
     if (fileContent) {
       try {
-        frame = (await codeFrameColumns(
+        frame = renderCodeFrame(
           fileContent,
           { start: { line: lineNumber, column } },
           { forceColor: true }
-        )) as string
+        ) as string
       } catch {}
     }
 

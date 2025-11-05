@@ -317,7 +317,7 @@ async function createOriginalStackFrame(
       ignored: traced.frame.ignored,
       methodName: traced.frame.methodName,
     },
-    originalCodeFrame: await getOriginalCodeFrame(traced.frame, traced.source),
+    originalCodeFrame: getOriginalCodeFrame(traced.frame, traced.source),
   }
 }
 

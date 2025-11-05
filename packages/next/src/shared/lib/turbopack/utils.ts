@@ -11,7 +11,7 @@ import { deobfuscateText } from '../magic-identifier'
 import type { EntryKey } from './entry-key'
 import * as Log from '../../../build/output/log'
 import type { NextConfigComplete } from '../../../server/config-shared'
-import { codeFrameColumns } from '../errors/code-frame'
+import { renderCodeFrame } from '../errors/code-frame'
 
 type IssueKey = `${Issue['severity']}-${Issue['filePath']}-${string}-${string}`
 export type IssuesMap = Map<IssueKey, Issue>
@@ -134,22 +134,20 @@ export async function formatIssue(issue: Issue) {
   ) {
     const { start, end } = source.range
 
-    // TODO(luke.sandberg): move codeFrame formatting into turbopack to avoid being async here.
-    const codeFrame = (
-      await codeFrameColumns(
-        source.source.content,
-        {
-          start: {
-            line: start.line + 1,
-            column: start.column + 1,
-          },
-          end: {
-            line: end.line + 1,
-            column: end.column + 1,
-          },
+    // TODO(lukesandberg): move codeFrame formatting into turbopack
+    const codeFrame = renderCodeFrame(
+      source.source.content,
+      {
+        start: {
+          line: start.line + 1,
+          column: start.column + 1,
         },
-        { forceColor: true }
-      )
+        end: {
+          line: end.line + 1,
+          column: end.column + 1,
+        },
+      },
+      { forceColor: true }
     ).trim()
     if (codeFrame) {
       message += codeFrame + '\n\n'

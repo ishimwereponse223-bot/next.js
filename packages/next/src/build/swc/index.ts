@@ -187,6 +187,11 @@ export function getBindingsSync(): Binding {
   return loadedBindings
 }
 
+/** Returns the loaded bindings if they are available. Otherwise returns `undefined` */
+export function tryGetBindingsSync(): Binding | undefined {
+  return loadedBindings
+}
+
 /**
  * Loads the native or wasm binding.
  *
@@ -1655,13 +1660,4 @@ export async function warnForEdgeRuntime(
   isProduction: boolean
 ): Promise<NapiSourceDiagnostic[]> {
   return getBindingsSync().rspack.warnForEdgeRuntime(source, isProduction)
-}
-
-export async function codeFrameColumns(
-  source: string,
-  location: NapiCodeFrameLocation,
-  options?: NapiCodeFrameOptions
-): Promise<string> {
-  const bindings = await loadBindings()
-  return bindings.codeFrameColumns(source, location, options)
 }
