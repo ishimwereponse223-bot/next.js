@@ -646,15 +646,20 @@ async function exportAppImpl(
         `Exporting using ${options.numWorkers} worker${options.numWorkers > 1 ? 's' : ''}`
     )
 
-    worker =
-      staticWorker ??
-      createStaticWorker(nextConfig, {
+    if (staticWorker) {
+      // TODO: progress shouldn't rely on "activity" event sent from `exportPage`.
+      staticWorker.setOnActivity(progress.run)
+      staticWorker.setOnActivityAbort(progress.clear)
+      worker = staticWorker
+    } else {
+      worker = createStaticWorker(nextConfig, {
         debuggerPortOffset: getNextBuildDebuggerPortOffset({
           kind: 'export-page',
         }),
         numberOfWorkers: options.numWorkers,
         progress,
       })
+    }
 
     results = await exportPagesInBatches(worker, initialPhaseExportPaths)
 
@@ -914,6 +919,12 @@ async function exportAppImpl(
 
   if (telemetry) {
     await telemetry.flush()
+  }
+
+  // Clean up activity listeners for progress.
+  if (staticWorker) {
+    staticWorker.setOnActivity(undefined)
+    staticWorker.setOnActivityAbort(undefined)
   }
 
   if (!staticWorker && worker) {
