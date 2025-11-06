@@ -565,8 +565,7 @@ async function exportAppImpl(
   const exportPagesInBatches = async (
     worker: StaticWorker,
     exportPaths: ExportPathEntry[],
-    renderResumeDataCachesByPage: Record<string, string> | undefined,
-    progress: ReturnType<typeof createProgress>
+    renderResumeDataCachesByPage?: Record<string, string>
   ): Promise<ExportPagesResult> => {
     // Batch filtered pages into smaller batches, and call the export worker on
     // each batch. We've set a default minimum of 25 pages per batch to ensure
@@ -597,8 +596,8 @@ async function exportAppImpl(
 
     return (
       await Promise.all(
-        batches.map(async (batch) => {
-          const result = await worker.exportPages({
+        batches.map(async (batch) =>
+          worker.exportPages({
             buildId,
             exportPaths: batch,
             parentSpanId: span.getId(),
@@ -615,9 +614,7 @@ async function exportAppImpl(
             fetchCacheKeyPrefix: nextConfig.experimental.fetchCacheKeyPrefix,
             renderResumeDataCachesByPage,
           })
-          progress.run()
-          return result
-        })
+        )
       )
     ).flat()
   }
@@ -659,12 +656,7 @@ async function exportAppImpl(
         progress,
       })
 
-    results = await exportPagesInBatches(
-      worker,
-      initialPhaseExportPaths,
-      undefined,
-      progress
-    )
+    results = await exportPagesInBatches(worker, initialPhaseExportPaths)
 
     if (finalPhaseExportPaths.length > 0) {
       const renderResumeDataCachesByPage: Record<string, string> = {}
@@ -688,8 +680,7 @@ async function exportAppImpl(
       const finalPhaseResults = await exportPagesInBatches(
         worker,
         finalPhaseExportPaths,
-        renderResumeDataCachesByPage,
-        progress
+        renderResumeDataCachesByPage
       )
 
       results.push(...finalPhaseResults)
