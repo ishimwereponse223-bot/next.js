@@ -926,6 +926,7 @@ export default async function build(
   const buildStartTime = Date.now()
 
   let loadedConfig: NextConfigComplete | undefined
+  let staticWorker: StaticWorker
   try {
     const nextBuildSpan = trace('next-build', undefined, {
       buildMode: experimentalBuildMode,
@@ -1966,7 +1967,7 @@ export default async function build(
 
       process.env.NEXT_PHASE = PHASE_PRODUCTION_BUILD
 
-      const staticWorker = createStaticWorker(config, {
+      staticWorker = createStaticWorker(config, {
         numberOfWorkers,
         debuggerPortOffset: -1,
       })
@@ -4011,7 +4012,8 @@ export default async function build(
       // When output: export we want to end the worker later as it's still used for writeFullyStaticExport
       if (config.output !== 'export') {
         // ensure the worker is not left hanging
-        staticWorker.end()
+        staticWorker?.end()
+        staticWorker = undefined! // Reset staticWorker to make sure it does not end in `finally`
       }
 
       const analysisEnd = process.hrtime(analysisBegin)
@@ -4202,6 +4204,7 @@ export default async function build(
           })
         // End the worker here when it's output: export.
         staticWorker.end()
+        staticWorker = undefined! // Reset staticWorker to make sure it does not end in `finally`
       }
 
       // This should come after output: export handling but before
@@ -4307,6 +4310,9 @@ export default async function build(
     }
     throw e
   } finally {
+    if (staticWorker) {
+      staticWorker.end()
+    }
     // Ensure we wait for lockfile patching if present
     await lockfilePatchPromise.cur
 
