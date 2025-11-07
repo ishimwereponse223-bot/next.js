@@ -4310,6 +4310,7 @@ export default async function build(
     }
     throw e
   } finally {
+    // @ts-expect-error Existence of staticWorker is checked here intentionally.
     if (staticWorker) {
       staticWorker.end()
     }
